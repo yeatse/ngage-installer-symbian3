@@ -4,6 +4,9 @@ inputs:
   filename:
     description: Filename from validation/inputs.json
     required: true
+  manifest:
+    description: Repository-relative hash manifest
+    default: validation/inputs.json
 outputs:
   path:
     description: Repository-relative path to the verified input
@@ -15,13 +18,14 @@ runs:
       shell: bash
       env:
         INPUT_FILENAME: ${{ inputs.filename }}
+        INPUT_MANIFEST: ${{ inputs.manifest }}
       run: |
         python3 - <<'PY'
         import json
         import os
         from pathlib import Path
         name = os.environ['INPUT_FILENAME']
-        entries = json.loads(Path('validation/inputs.json').read_text())
+        entries = json.loads(Path(os.environ['INPUT_MANIFEST']).read_text())
         entry = next(item for item in entries if item['filename'] == name)
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
             output.write(f"sha256={entry['sha256']}\n")
@@ -35,4 +39,5 @@ runs:
       shell: bash
       env:
         INPUT_FILENAME: ${{ inputs.filename }}
-      run: python3 tools/fetch_inputs.py downloads --only "$INPUT_FILENAME"
+        INPUT_MANIFEST: ${{ inputs.manifest }}
+      run: python3 tools/fetch_inputs.py downloads --manifest "$INPUT_MANIFEST" --only "$INPUT_FILENAME"

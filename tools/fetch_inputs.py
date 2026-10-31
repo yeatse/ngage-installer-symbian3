@@ -16,12 +16,13 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('directory', type=Path)
+    parser.add_argument('--manifest', type=Path,
+                        default=Path(__file__).resolve().parents[1] / 'validation/inputs.json')
     parser.add_argument('--only', nargs='+', metavar='FILENAME',
                         help='Fetch only these manifest entries')
     args = parser.parse_args()
     args.directory.mkdir(parents=True, exist_ok=True)
-    manifest = Path(__file__).resolve().parents[1] / 'validation/inputs.json'
-    items = json.loads(manifest.read_text())
+    items = json.loads(args.manifest.read_text())
     if args.only:
         unknown = set(args.only) - {item['filename'] for item in items}
         if unknown:

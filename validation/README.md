@@ -49,3 +49,12 @@ The package tooling workflow requests only `n97-ngage.sisx`. ROMs and the sample
 game are reserved for emulator validation jobs. Updating one resource's digest
 does not invalidate cached copies of the other resources. Local downloads are
 also reused and verified; `--only FILENAME` selects a single manifest entry.
+
+The native SDK has a separate `validation/sdk.json` manifest. Build jobs can use
+the same cache action with `manifest: validation/sdk.json` and
+`filename: symbian-sdk-0.3.0-linux-x86_64.tar.gz`. Runtime test jobs select ROMs
+and the game individually from `validation/inputs.json`.
+
+Cache behavior was exercised in Actions run `41217431339`: attempt 1 downloaded
+and saved the pinned installer; attempt 2 restored the same key and verified the
+local file without downloading. All four package checks passed on both attempts.
