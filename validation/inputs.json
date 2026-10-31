@@ -1,0 +1,22 @@
+[
+  {
+    "filename": "n97.7z",
+    "url": "https://archive.sunderland93.ru/Symbian%20OS%20ROM%20dumps%20%28for%20EKA2L1%29/%21S60%20Devices/Nokia%20N-Series/N97%20%28S60v5%29.7z",
+    "sha256": "c32d85f3754fcf3ea6f29f47140cab0ca359b50ca8a9ab3ce7ef1ab543166e15"
+  },
+  {
+    "filename": "x7.7z",
+    "url": "https://archive.sunderland93.ru/Symbian%20OS%20ROM%20dumps%20%28for%20EKA2L1%29/%21S60%20Devices/Nokia%20X-Series/X7%20%28Symbian%5E3%29.7z",
+    "sha256": "dd970d5db67752236d1c7ec42af4032ffc4580007c3ba29ae6cb33e51b9b5cf8"
+  },
+  {
+    "filename": "n97-ngage.sisx",
+    "url": "https://wunderwungiel.pl/Symbian/SymbianWorldMegaRepo/SW%20update/N-Gage%202.0%20Installer%20v1.30%281541%29%20%5BNokia%20N97%5D.sisx",
+    "sha256": "3fb69e54122a74597f9311d036dc1cf483f1ec01d40a03de7c892418bcf4e998"
+  },
+  {
+    "filename": "hooked.n-gage",
+    "url": "https://ia600801.us.archive.org/7/items/Dance.Fabulous.nGage/N-Gage%202.0/Games/Full/Hooked.On.Creatures.of.the.Deep.n-gage",
+    "sha256": "a52da7a5d3d9f7ebd3eb81e49e3294d8998060f7cc2539fe955b8bfe14e1745c"
+  }
+]
