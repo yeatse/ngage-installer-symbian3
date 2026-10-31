@@ -1,0 +1,13 @@
+[project]
+architecture = "armv6"
+name = "ngage_install_relay"
+kind = "e32-import-experiment"
+cmake_preset = "symbian-pic"
+uid3 = 0xe0000972
+
+[package]
+uid = 0xe0000973
+name = "N-Gage Install Relay"
+vendor = "ngage-installer-symbian3"
+executable_name = "YnstallServer.exe"
+version = [1, 0, 0]

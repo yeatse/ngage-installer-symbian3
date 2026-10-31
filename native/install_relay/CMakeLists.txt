@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.28)
+project(ngage_install_relay LANGUAGES CXX ASM)
+include(SymbianApp)
+symbian_add_executable(ngage_install_relay main.cc)
+target_link_libraries(ngage_install_relay PRIVATE Symbian::EUser)
+target_link_options(ngage_install_relay PRIVATE --gc-sections)
+symbian_publish_executable(ngage_install_relay UID3 0xe0000972)

@@ -1,0 +1,18 @@
+[project]
+architecture = "armv6"
+name = "ngage_touch"
+kind = "e32-import-experiment"
+cmake_preset = "symbian-pic"
+uid3 = 0xe0000960
+
+[package]
+uid = 0xe0000961
+name = "N-Gage Touch Controls"
+vendor = "ngage-installer-symbian3"
+executable_name = "ngage_touch.exe"
+version = [1, 0, 0]
+
+[application]
+caption = "Games (Touch)"
+short_caption = "Games (Touch)"
+icon = "assets/icon.svg"

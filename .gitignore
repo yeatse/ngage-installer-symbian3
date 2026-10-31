@@ -3,3 +3,5 @@
 /runtime/
 /artifacts/
 __pycache__/
+
+sdk-location.json

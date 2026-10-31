@@ -1,0 +1,37 @@
+name: Build unsigned Symbian installer
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-build.txt
+      - uses: ./.github/actions/cache-input
+        with:
+          filename: n97-ngage.sisx
+      - uses: ./.github/actions/cache-input
+        with:
+          filename: symbian-sdk-0.3.0-linux-x86_64.tar.gz
+          manifest: validation/sdk.json
+      - name: Install pinned build tooling
+        run: pip install -r requirements-build.txt
+      - name: Extract SDK
+        run: |
+          mkdir -p "$RUNNER_TEMP/symbian-sdk"
+          tar -xzf downloads/symbian-sdk-0.3.0-linux-x86_64.tar.gz -C "$RUNNER_TEMP/symbian-sdk" --strip-components=1
+      - name: Build and verify installer
+        run: python tools/build.py --sdk "$RUNNER_TEMP/symbian-sdk" --installer downloads/n97-ngage.sisx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ngage-installer-symbian3-unsigned
+          path: artifacts/
+          if-no-files-found: error
