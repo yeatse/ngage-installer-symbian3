@@ -58,3 +58,35 @@ and the game individually from `validation/inputs.json`.
 Cache behavior was exercised in Actions run `41217431339`: attempt 1 downloaded
 and saved the pinned installer; attempt 2 restored the same key and verified the
 local file without downloading. All four package checks passed on both attempts.
+
+## Current results (2026-10-31)
+
+N97 baseline completed: unchanged `.n-gage` installed inside Games, Trial launched,
+English/name selection completed, Instant Play entered the boat map and fishing
+screen. Further fishing was explicitly excluded from acceptance by the user.
+
+The complete unsigned installer builds locally and in Actions run
+`41241934962`. Both produced SHA-256
+`6c89092d7d5c64139af4a2c04954377313ea620edfd4eed05d8ae3deb4f79f89`.
+Nine package/identity checks pass. This does not establish X7 gameplay success.
+
+X7 Games starts with the adapted N97 profile. The native touch service creates
+alpha windows and reads installed-game metadata. Full game installation and
+control acceptance are still under investigation.
+
+The supplied X7 image contains the Belle `uiss.dll` modification that requests
+`YnstallServer`, but omits its C-drive installation service. For a reproducible
+**already hacked phone** test fixture, `hacked-x7.json` pins the matching public
+Belle component from shinovon/misc-symbian-patches. Its README attributes the
+patch to others; the accompanying RMP credits ExtraX7 (2012-08-30). Copy it only
+into the isolated X7 profile as `C:\sys\bin\YnstallServer.exe`, then cold-restart
+the guest. The original ROM archive remains unchanged. This fixture is neither
+an emulator implementation nor part of the generated installer. The installer's
+fallback relay forwards to the existing ordinary InstallServer and does not
+replace this hacked-environment prerequisite.
+
+EKA2L1 fixes are in `yeatse/EKA2L1`, branch `fix/desktop-first-device-boot`,
+starting at the reference revision above. They cover first-device boot,
+installer callback threading, sparse-container iteration, ROM GOOM export
+compatibility, animation teardown and property teardown. Linux tests pass
+33,446 assertions in 463 cases. iOS and physical-device validation were not run.
