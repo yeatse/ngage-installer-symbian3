@@ -36,3 +36,16 @@ The required runtime acceptance sequence is:
 
 Emulator reference revision: `8ad3e14dad84db064c6efe29abf3553e26610a67`.
 Native application SDK: `hpnkv/symbian-platform` release `v0.3.0`.
+
+## GitHub Actions input caching
+
+The reusable `.github/actions/cache-input` action restores an individual file by
+its expected SHA-256, then runs the same hash verification as local builds. A
+cache hit makes no request to the original server. There are no broad fallback
+keys that could substitute a different version. GitHub may evict inactive caches;
+a missing cache is populated from the pinned source again.
+
+The package tooling workflow requests only `n97-ngage.sisx`. ROMs and the sample
+game are reserved for emulator validation jobs. Updating one resource's digest
+does not invalidate cached copies of the other resources. Local downloads are
+also reused and verified; `--only FILENAME` selects a single manifest entry.
