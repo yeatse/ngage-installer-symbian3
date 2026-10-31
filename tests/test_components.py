@@ -13,11 +13,23 @@ from sis import Field, Package, array, array_items, fields, sequence
 
 def package(uid):
     block = Field(28, sequence([array(24, []), array(13, []), array(26, [])]))
-    return Package(bytes(16), Field(13, block.encode() + Field(40, bytes(4)).encode()),
+    header = struct.pack('<III', 0x10201a7a, 0, uid)
+    crc = (binascii.crc_hqx(header[1:12:2], 0) << 16) | binascii.crc_hqx(header[:12:2], 0)
+    return Package(header + struct.pack('<I', crc), Field(13, block.encode() + Field(40, bytes(4)).encode()),
                    Field(30, array(31, [Field(31, array(32, []).encode())]).encode()))
 
 
 class ComponentTests(unittest.TestCase):
+    def test_embedded_controllers_address_their_own_data_units(self):
+        combined = merge_embedded(package(1), [package(2), package(3)])
+        block = fields(combined.controller.payload)[0]
+        children = array_items(fields(block.payload)[1])
+        indices = [struct.unpack('<I', next(f for f in fields(c.payload) if f.kind == 40).payload)[0]
+                   for c in children]
+        self.assertEqual(indices, [1, 2])
+        self.assertEqual(len(array_items(fields(combined.data.payload)[0])), 3)
+        self.assertEqual(Package.parse(combined.encode()), combined)
+
     def image(self):
         raw = bytearray(156)
         struct.pack_into('<III', raw, 0, 0x1000007a, 0, 0xe0000960)
