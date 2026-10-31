@@ -4,12 +4,15 @@ import json
 import os
 from pathlib import Path
 import sys
+import struct
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from extract_client import extract_client
-from sis import Package
+from extract_client import descendants
+from adapt_client import adapt_client, SYMBIAN3_MARKER, SYMBIAN3_PRODUCT_UID
+from sis import Package, fields, array_items
 
 
 class OriginalInstallerTests(unittest.TestCase):
@@ -54,6 +57,25 @@ class OriginalInstallerTests(unittest.TestCase):
             with self.subTest(count=count):
                 with self.assertRaises(ValueError):
                     Package.parse(self.original[:-count])
+
+    def test_symbian3_adaptation_preserves_binaries_and_removes_signatures(self):
+        raw = extract_client(Package.parse(self.original))
+        encoded, report = adapt_client(raw)
+        original = Package.parse(raw)
+        adapted = Package.parse(encoded)
+        self.assertEqual(adapted.data, original.data)
+        self.assertFalse(any(f.kind == 39 for f in descendants(adapted.controller)))
+        self.assertEqual(report, {'touch_profile_conditions': 25, 'removed_signatures': 30})
+        self.assertEqual(adapted.controller.payload.count(SYMBIAN3_MARKER.encode('utf-16le')), 25)
+        pre = next(f for f in fields(adapted.controller.payload) if f.kind == 17)
+        device = array_items(fields(pre.payload)[0])[0]
+        uid = fields(device.payload)[0]
+        self.assertEqual(struct.unpack('<I', uid.payload)[0], SYMBIAN3_PRODUCT_UID)
+        self.assertEqual(adapt_client(raw)[0], encoded)
+
+    def test_adaptation_rejects_an_unrecognized_source(self):
+        with self.assertRaisesRegex(ValueError, 'pinned N97'):
+            adapt_client(self.original)
 
 
 if __name__ == '__main__':
