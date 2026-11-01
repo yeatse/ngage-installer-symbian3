@@ -9,8 +9,10 @@ from sis import Field, Package, array, array_items, fields, sequence
 
 CLIENT_SHA256 = '321253b58a70e67d2de3b381e806dfa48b04e99e637ebc4730d6c42aa6306367'
 SYMBIAN3_MARKER = r'z:\system\install\Series60v5.2.sis'
+BELLE_MARKER = r'z:\system\install\Series60v5.3.sis'
 N97_MACHINE_UID = 0x20014ddd
 SYMBIAN3_PRODUCT_UID = 0x20022e6d
+BELLE_PRODUCT_UID = 0x2003a678
 
 
 def exists(path):
@@ -30,10 +32,17 @@ def is_n97_comparison(field):
 
 
 def rewrite(field, counts):
+    if field.kind == 17:
+        updated = product_prerequisite(field)
+        if updated != field:
+            counts['device_prerequisites'] += 1
+        return updated
     if is_n97_comparison(field):
         counts['touch_profile_conditions'] += 1
         return Field(29, struct.pack('<II', 8, 0) + field.encode()
-                     + exists(SYMBIAN3_MARKER).encode())
+                     + Field(29, struct.pack('<II', 8, 0)
+                             + exists(SYMBIAN3_MARKER).encode()
+                             + exists(BELLE_MARKER).encode()).encode())
     if field.kind == 29:
         op = struct.unpack_from('<I', field.payload)[0]
         if 1 <= op <= 9 or op in (11, 12):
@@ -60,26 +69,40 @@ def product_prerequisite(field):
     if len(arrays) != 2:
         raise ValueError('Unexpected prerequisites layout')
     device_dependencies = array_items(arrays[0])
-    if len(device_dependencies) != 1:
-        raise ValueError('Unexpected device prerequisites')
-    dependency = fields(device_dependencies[0].payload)
-    if dependency[0] != Field(9, struct.pack('<I', 0x1028315f)):
-        raise ValueError('Unexpected original product UID')
-    dependency[0] = Field(9, struct.pack('<I', SYMBIAN3_PRODUCT_UID))
+    dependency = fields(device_dependencies[0].payload) if device_dependencies else [
+        Field(9, bytes(4)),
+        Field(5, Field(4, struct.pack('<iii', 0, 0, 0)).encode()),
+        array(1, [Field(1, 'S60ProductID'.encode('utf-16le'))])]
+    alternatives = []
+    for uid in (SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID):
+        alternative = [Field(9, struct.pack('<I', uid)), *dependency[1:]]
+        alternatives.append(Field(18, sequence(alternative)))
     return Field(17, sequence([
-        array(18, [Field(18, sequence(dependency))]), arrays[1]]))
+        array(18, alternatives), arrays[1]]))
+
+
+def target_component(package):
+    members = fields(package.controller.payload)
+    if sum(f.kind == 17 for f in members) != 1:
+        raise ValueError('Expected one component prerequisites field')
+    return Package(package.uid_header, Field(13, sequence(
+        product_prerequisite(f) if f.kind == 17 else f for f in members)), package.data)
 
 
 def adapt_client(raw):
     if hashlib.sha256(raw).hexdigest() != CLIENT_SHA256:
         raise ValueError('Expected the pinned N97 v1.30(1541) client')
     original = Package.parse(raw)
-    counts = {'touch_profile_conditions': 0, 'removed_signatures': 0}
+    counts = {'touch_profile_conditions': 0, 'removed_signatures': 0,
+              'device_prerequisites': 0}
     controller = rewrite(original.controller, counts)
     children = fields(controller.payload)
     if sum(child.kind == 17 for child in children) != 1:
         raise ValueError('Expected one root product prerequisite')
-    children = [product_prerequisite(child) if child.kind == 17 else child
+    info = next(child for child in children if child.kind == 14)
+    members = [Field(4, struct.pack('<iii', 1, 30, 1542)) if f.kind == 4 else f
+               for f in fields(info.payload[:-2])]
+    children = [Field(14, sequence(members) + info.payload[-2:]) if child is info else child
                 for child in children]
     if not counts['touch_profile_conditions'] or not counts['removed_signatures']:
         raise ValueError('Original controller did not match expected adaptation points')

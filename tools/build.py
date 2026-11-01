@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from adapt_client import adapt_client
+from adapt_client import adapt_client, target_component
 from component_identity import patch_image, replace_image
 from extract_client import extract_client
 from merge_packages import merge_embedded
@@ -65,7 +65,7 @@ def main():
         raise ValueError('Installer SHA-256 does not match pinned upstream input')
     client = extract_client(Package.parse(source))
     adapted, report = adapt_client(client)
-    touch = component(sdk, 'touch', 'ngage_touch', 0xe0000960, capabilities=6144)
+    touch = target_component(component(sdk, 'touch', 'ngage_touch', 0xe0000960, capabilities=6144))
     server_image = adapt_server(args.install_service.read_bytes())
     server = single_file(touch, server_image, package_uid=0xe0000973,
                          name='N-Gage Belle SWI compatibility',
@@ -77,18 +77,26 @@ def main():
     posting = single_file(touch, posting_image, package_uid=0xe0000963,
                           name='N-Gage native display compatibility',
                           target=r'C:\sys\bin\PostingSurfaceFactory.dll')
-    result = merge_embedded(Package.parse(adapted), [server, posting, touch]).encode()
+    # Ordinary hacked phones already supply InstallServer. The X7 CFW backend
+    # is a separate package variant; replacing a running SWI service is unsafe.
+    result = merge_embedded(Package.parse(adapted), [posting, touch]).encode()
     args.output.mkdir(parents=True, exist_ok=True)
     target = args.output / 'ngage-installer-symbian3.sis'
     target.write_bytes(result)
     report.update({'sha256': hashlib.sha256(result).hexdigest(), 'bytes': len(result),
                    'signed': False, 'sdk_version': '0.3.0',
                    'original_payload_preserved': True,
-                   'guest_install_service': 'filename-optional for MSisDataProvider',
+                   'guest_install_service': 'existing phone installation service',
                    'guest_display': 'native window and bitmap APIs',
                    'touch_capabilities': ['AllFiles', 'SwEvent']})
     (args.output / 'build-report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'Built {target}: {report}')
+    x7 = merge_embedded(Package.parse(adapted), [server, posting, touch]).encode()
+    x7_target = args.output / 'ngage-installer-x7-custom-rom.sis'
+    x7_target.write_bytes(x7)
+    x7_report = dict(report, sha256=hashlib.sha256(x7).hexdigest(), bytes=len(x7),
+                     guest_install_service='X7 custom ROM YnstallServer replacement')
+    (args.output / 'build-report-x7-custom-rom.json').write_text(json.dumps(x7_report, indent=2) + '\n')
 
 
 if __name__ == '__main__':

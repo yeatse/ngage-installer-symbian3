@@ -11,16 +11,23 @@ A/B (5/7) on the right, and a visibility toggle. The overlay needs AllFiles
 to discover installed game metadata and SwEvent to send key events.
 
 Put legally obtained `.n-gage` files in `E:\n-gage`, open **Games (Touch)**,
-install inside Games, then launch the game there. The package includes an adapted Belle `YnstallServer` installation service at
-`C:\sys\bin\YnstallServer.exe`; installing it replaces a service at that path.
-This targets the supplied hacked X7/Belle environment whose `uiss.dll` already
-requests that service. It does not patch the ROM's SWI client or provide game
-licenses. Other hacked configurations and physical phones require validation.
+install inside Games, then launch the game there.
 
-The service is a pinned public patched Belle binary, with a narrowly scoped
-source-controlled binary adaptation: a filename-less `MSisDataProvider` may
-return `KErrNotFound` from `GetSisFileNameL`. Other errors remain fatal.
-The original Nokia Games client and game payloads are preserved.
+Use **ngage-installer-symbian3.sis** on ordinary hacked Symbian^3/Belle phones,
+including the Nokia 808 Belle FP2 configuration with Install Server and Open4All.
+This variant uses the phone's existing installation service.
+
+**ngage-installer-x7-custom-rom.sis** additionally replaces
+`C:\sys\bin\YnstallServer.exe`. It is reserved for the supplied X7 custom ROM
+whose `uiss.dll` requests that service. It is not the package to use on an 808.
+The pinned public Belle service has a narrowly scoped adaptation for filename-less
+MSisDataProvider streams. No game license is supplied; original client/game
+binaries are preserved.
+
+Package revision 1.30(1542) corrects legacy and empty component platform declarations and
+recognizes both Symbian^3 and Belle product/ROM markers. Physical-phone
+installation is under investigation following an 808 failure report; emulator
+host-side SIS installation alone is not sufficient validation.
 
 ## Build
 
@@ -41,7 +48,8 @@ python3 tools/fetch_inputs.py downloads --manifest validation/hacked-x7.json \
 .venv/bin/python tools/build.py --sdk /absolute/path/to/sdk --installer downloads/n97-ngage.sisx
 ```
 
-Output: `artifacts/ngage-installer-symbian3.sis` and `build-report.json`.
+Output: the ordinary-phone SIS and report, plus the separately named X7 custom-ROM
+SIS and `build-report-x7-custom-rom.json`.
 The package is unsigned. SDK-generated experimental E32 identities and
 capabilities are updated with verified header checksums; executable code stays
 unchanged. Original Nokia components retain their upstream identities.

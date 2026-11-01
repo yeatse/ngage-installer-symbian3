@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from extract_client import extract_client
 from extract_client import descendants
-from adapt_client import adapt_client, SYMBIAN3_MARKER, SYMBIAN3_PRODUCT_UID
+from adapt_client import (adapt_client, SYMBIAN3_MARKER, SYMBIAN3_PRODUCT_UID,
+                          BELLE_MARKER, BELLE_PRODUCT_UID)
 from sis import Package, fields, array_items
 
 
@@ -65,13 +66,28 @@ class OriginalInstallerTests(unittest.TestCase):
         adapted = Package.parse(encoded)
         self.assertEqual(adapted.data, original.data)
         self.assertFalse(any(f.kind == 39 for f in descendants(adapted.controller)))
-        self.assertEqual(report, {'touch_profile_conditions': 25, 'removed_signatures': 30})
+        self.assertEqual(report, {'touch_profile_conditions': 25, 'removed_signatures': 30,
+                                  'device_prerequisites': 15})
         self.assertEqual(adapted.controller.payload.count(SYMBIAN3_MARKER.encode('utf-16le')), 25)
+        self.assertEqual(adapted.controller.payload.count(BELLE_MARKER.encode('utf-16le')), 25)
         pre = next(f for f in fields(adapted.controller.payload) if f.kind == 17)
         device = array_items(fields(pre.payload)[0])[0]
         uid = fields(device.payload)[0]
         self.assertEqual(struct.unpack('<I', uid.payload)[0], SYMBIAN3_PRODUCT_UID)
         self.assertEqual(adapt_client(raw)[0], encoded)
+
+    def test_every_embedded_product_declaration_supports_belle(self):
+        original = Package.parse(extract_client(Package.parse(self.original)))
+        adapted = Package.parse(adapt_client(extract_client(Package.parse(self.original)))[0])
+        before = [f for f in descendants(original.controller) if f.kind == 17]
+        after = [f for f in descendants(adapted.controller) if f.kind == 17]
+        self.assertEqual(len(before), len(after))
+        for old, new in zip(before, after):
+            old_arrays, new_arrays = fields(old.payload), fields(new.payload)
+            self.assertEqual(old_arrays[1], new_arrays[1])
+            devices = array_items(new_arrays[0])
+            uids = [struct.unpack('<I', fields(d.payload)[0].payload)[0] for d in devices]
+            self.assertEqual(uids, [SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID])
 
     def test_adaptation_rejects_an_unrecognized_source(self):
         with self.assertRaisesRegex(ValueError, 'pinned N97'):

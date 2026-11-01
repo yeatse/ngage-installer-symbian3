@@ -111,3 +111,24 @@ workspace.
 
 These emulator captures document the tested sample, not all N-Gage titles.
 Game imagery retains its original owners' copyright.
+
+## Device installation correction — 1.30(1542)
+
+A Nokia 808 Belle FP2 user reported a compatibility warning followed by failure
+with Install Server and Open4All patches enabled. The previous host-side SIS
+installation check did not exercise the ROM SWI planner. Do not count the older
+host-installed client as proof of phone installation.
+
+The corrected package gives every controller an explicit Symbian^3/Belle target
+list. This includes 15 original controllers and the two added native components;
+empty SDK target lists can be rejected by the ROM's SISCompatibleIfNoTargetDevices
+policy (see CRequisitesChecker::AnyOnDeviceL). It also recognizes the Belle ROM
+marker, increments the wrapper revision to 1.30(1542), and excludes the X7 CFW
+installation service from the ordinary-phone package. That backend is retained
+only in `ngage-installer-x7-custom-rom.sis`.
+
+The [native installer probe](native-installer/README.md) opens the real ROM
+Software Installer. On a fresh isolated X7/Belle C/E profile, the corrected SIS
+passed compatibility checks without a warning and completed installation. All
+client/native files and SIS registry entries were created. The ordinary-phone
+package does not install or replace YnstallServer. A real 808 retest is pending.

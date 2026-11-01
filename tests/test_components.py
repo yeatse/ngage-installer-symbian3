@@ -7,6 +7,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from component_identity import header_crc, patch_image
+from adapt_client import target_component, SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID
 from merge_packages import merge_embedded
 from sis import Field, Package, array, array_items, fields, sequence
 
@@ -20,6 +21,18 @@ def package(uid):
 
 
 class ComponentTests(unittest.TestCase):
+    def test_sdk_components_do_not_leave_the_target_device_list_empty(self):
+        original = package(1)
+        prerequisites = Field(17, sequence([array(18, []), array(18, [])]))
+        original = Package(original.uid_header,
+                           Field(13, prerequisites.encode() + original.controller.payload), original.data)
+        updated = target_component(original)
+        target = next(f for f in fields(updated.controller.payload) if f.kind == 17)
+        uids = [struct.unpack('<I', fields(d.payload)[0].payload)[0]
+                for d in array_items(fields(target.payload)[0])]
+        self.assertEqual(uids, [SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID])
+        self.assertEqual(updated.data, original.data)
+
     def test_embedded_controllers_address_their_own_data_units(self):
         combined = merge_embedded(package(1), [package(2), package(3)])
         block = fields(combined.controller.payload)[0]
