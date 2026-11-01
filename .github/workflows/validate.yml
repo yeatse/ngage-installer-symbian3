@@ -19,6 +19,10 @@ jobs:
       - uses: ./.github/actions/cache-input
         with:
           filename: n97-ngage.sisx
+      - uses: ./.github/actions/cache-input
+        with:
+          filename: ynstallserver-belle-fixture.exe
+          manifest: validation/hacked-x7.json
       - name: Check upstream package integrity and extraction
         env:
           NGAGE_VALIDATION_INPUTS: ${{ github.workspace }}/downloads

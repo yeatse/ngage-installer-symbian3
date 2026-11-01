@@ -1,8 +1,8 @@
 # N-Gage installer for Symbian^3
 
 Work in progress: unsigned N97 N-Gage 1.30(1541) client adaptation for already
-hacked Symbian^3 phones. X7 emulator validation is ongoing; physical phones have
-not been tested. Do not treat a successful build as runtime compatibility proof.
+hacked Symbian^3 phones. The supplied X7/Belle ROM has passed inside-Games installation and
+boat-map gameplay with the supplied sample; physical phones have not been tested.
 
 The installer selects the original N97 touch profile on Symbian^3, preserves
 the original client binaries, and adds a native **Games (Touch)** launcher.
@@ -11,10 +11,16 @@ A/B (5/7) on the right, and a visibility toggle. The overlay needs AllFiles
 to discover installed game metadata and SwEvent to send key events.
 
 Put legally obtained `.n-gage` files in `E:\n-gage`, open **Games (Touch)**,
-install inside Games, then launch the game there. An existing working hacked
-installation service is required. The optional startup relay supplies a missing
-`YnstallServer` alias; it does not disable certificate validation or provide
-game licenses. Existing aliases are preserved on initial installation.
+install inside Games, then launch the game there. The package includes an adapted Belle `YnstallServer` installation service at
+`C:\sys\bin\YnstallServer.exe`; installing it replaces a service at that path.
+This targets the supplied hacked X7/Belle environment whose `uiss.dll` already
+requests that service. It does not patch the ROM's SWI client or provide game
+licenses. Other hacked configurations and physical phones require validation.
+
+The service is a pinned public patched Belle binary, with a narrowly scoped
+source-controlled binary adaptation: a filename-less `MSisDataProvider` may
+return `KErrNotFound` from `GetSisFileNameL`. Other errors remain fatal.
+The original Nokia Games client and game payloads are preserved.
 
 ## Build
 
@@ -30,6 +36,8 @@ For a local Linux build, extract the pinned SDK from `validation/sdk.json`, then
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-build.txt
 python3 tools/fetch_inputs.py downloads --only n97-ngage.sisx
+python3 tools/fetch_inputs.py downloads --manifest validation/hacked-x7.json \
+  --only ynstallserver-belle-fixture.exe
 .venv/bin/python tools/build.py --sdk /absolute/path/to/sdk --installer downloads/n97-ngage.sisx
 ```
 

@@ -11,38 +11,6 @@ def replace_block(package, transform):
     return Package(package.uid_header, controller, package.data)
 
 
-def retarget_drive(package, drive):
-    def visit(f):
-        if f.kind == 24:
-            metadata = fields(f.payload[:-28])
-            target = metadata[0].payload.decode('utf-16le')
-            if target.startswith('!:'):
-                metadata[0] = Field(1, (drive + target[1:]).encode('utf-16le'))
-            return Field(24, sequence(metadata) + f.payload[-28:])
-        if f.kind == 2:
-            kind = struct.unpack_from('<I', f.payload)[0]
-            return array(kind, [visit(c) for c in array_items(f)])
-        if f.kind in (13, 26, 27, 28):
-            return Field(f.kind, sequence(visit(c) for c in fields(f.payload)))
-        return f
-    return Package(package.uid_header, visit(package.controller), package.data)
-
-
-def guard_missing_files(package, paths):
-    from adapt_client import exists
-    condition = None
-    for path in paths:
-        missing = Field(29, struct.pack('<II', 9, 0) + exists(path).encode())
-        condition = missing if condition is None else Field(
-            29, struct.pack('<II', 7, 0) + condition.encode() + missing.encode())
-    if condition is None:
-        raise ValueError('Expected at least one guarded path')
-    def wrap(block):
-        branch = Field(26, condition.encode() + block.encode() + array(27, []).encode())
-        return Field(28, sequence([array(24, []), array(13, []), array(26, [branch])]))
-    return replace_block(package, wrap)
-
-
 def data_units(package):
     streams = fields(package.data.payload)
     if len(streams) != 1 or streams[0].kind != 2:

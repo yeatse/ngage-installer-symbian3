@@ -16,10 +16,11 @@ def header_crc(raw, size):
     return crc
 
 
-def patch_image(raw, expected_uid, *, uid2=0, uid3=None, sid=None, capabilities=0):
+def patch_image(raw, expected_uid, *, uid2=0, uid3=None, sid=None, capabilities=0,
+                expected_uid1=0x1000007a, expected_uid2=0):
     if len(raw) < 156 or raw[16:20] != b'EPOC':
         raise ValueError('Expected SDK E32 image')
-    if struct.unpack_from('<III', raw) != (0x1000007a, 0, expected_uid):
+    if struct.unpack_from('<III', raw) != (expected_uid1, expected_uid2, expected_uid):
         raise ValueError('Unexpected input UID type')
     size = struct.unpack_from('<I', raw, 100)[0]
     if size != 156 or struct.unpack_from('<I', raw, 28)[0] != 0:

@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from component_identity import header_crc, patch_image
-from merge_packages import guard_missing_files, merge_embedded
+from merge_packages import merge_embedded
 from sis import Field, Package, array, array_items, fields, sequence
 
 
@@ -56,13 +56,13 @@ class ComponentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             patch_image(raw, 0xe0000960)
 
-    def test_guard_requires_every_alias_to_be_missing(self):
-        guarded = guard_missing_files(package(1), [r'C:\sys\bin\YnstallServer.exe',
-                                                   r'Z:\sys\bin\YnstallServer.exe'])
-        block = fields(guarded.controller.payload)[0]
-        branch = array_items(fields(block.payload)[2])[0]
-        expression = fields(branch.payload)[0]
-        self.assertEqual(struct.unpack_from('<I', expression.payload)[0], 7)  # AND
-        for missing in fields(expression.payload[8:]):
-            self.assertEqual(struct.unpack_from('<I', missing.payload)[0], 9)  # NOT
+    def test_library_identity_retains_the_dll_type(self):
+        raw = bytearray(self.image())
+        struct.pack_into('<II', raw, 0, 0x10000079, 0x1000008d)
+        struct.pack_into('<I', raw, 20, header_crc(raw, 156))
+        result = patch_image(raw, 0xe0000960, uid2=0x1000008d,
+                             expected_uid1=0x10000079, expected_uid2=0x1000008d,
+                             capabilities=0xfffff)
+        self.assertEqual(struct.unpack_from('<II', result), (0x10000079, 0x1000008d))
+        self.assertEqual(result[156:], raw[156:])
 

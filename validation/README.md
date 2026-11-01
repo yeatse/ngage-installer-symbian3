@@ -45,7 +45,8 @@ cache hit makes no request to the original server. There are no broad fallback
 keys that could substitute a different version. GitHub may evict inactive caches;
 a missing cache is populated from the pinned source again.
 
-The package tooling workflow requests only `n97-ngage.sisx`. ROMs and the sample
+The package tooling workflow requests `n97-ngage.sisx` and the small pinned
+Belle service from `hacked-x7.json`. ROMs and the sample
 game are reserved for emulator validation jobs. Updating one resource's digest
 does not invalidate cached copies of the other resources. Local downloads are
 also reused and verified; `--only FILENAME` selects a single manifest entry.
@@ -59,34 +60,54 @@ Cache behavior was exercised in Actions run `41217431339`: attempt 1 downloaded
 and saved the pinned installer; attempt 2 restored the same key and verified the
 local file without downloading. All four package checks passed on both attempts.
 
-## Current results (2026-10-31)
+## Runtime results (2026-11-01)
 
-N97 baseline completed: unchanged `.n-gage` installed inside Games, Trial launched,
-English/name selection completed, Instant Play entered the boat map and fishing
-screen. Further fishing was explicitly excluded from acceptance by the user.
+N97 baseline completed with the original installer: unchanged `.n-gage` installed
+inside Games, Trial launched, English/name selection completed, Instant Play
+entered the boat map and fishing screen. Further fishing was excluded from
+acceptance by the user.
 
-The complete unsigned installer builds locally and in Actions run
-`41241934962`. Both produced SHA-256
-`6c89092d7d5c64139af4a2c04954377313ea620edfd4eed05d8ae3deb4f79f89`.
-Nine package/identity checks pass. This does not establish X7 gameplay success.
+X7/Belle runs the adapted N97 profile and the native PostingSurfaceFactory DLL.
+The guest DLL uses the ROM's existing window/bitmap APIs, with no emulator-only
+imports. Touch OK and directional navigation reach the Costa Rica boat map;
+translucent controls hide and reappear while gameplay keeps updating. No physical
+phone has been tested. Other games, earlier Symbian^3 releases, rotation/mirror
+posting formats and network services have not been validated.
 
-X7 Games starts with the adapted N97 profile. The native touch service creates
-alpha windows and reads installed-game metadata. Full game installation and
-control acceptance are still under investigation.
+The supplied X7 ROM's `uiss.dll` requests `YnstallServer`, but its C-drive service
+is missing. `hacked-x7.json` pins a public patched Belle server; the build adapts
+its `GetSisFileNameL` error handling for supported filename-less MSisDataProvider
+streams and includes it in the unsigned SIS. It replaces
+`C:\sys\bin\YnstallServer.exe`. This service's certificate behavior comes
+from the public hacked binary; this project does not supply game licenses or
+modify the sample game's bytes. The original ROM archives remain unchanged.
 
-The supplied X7 image contains the Belle `uiss.dll` modification that requests
-`YnstallServer`, but omits its C-drive installation service. For a reproducible
-**already hacked phone** test fixture, `hacked-x7.json` pins the matching public
-Belle component from shinovon/misc-symbian-patches. Its README attributes the
-patch to others; the accompanying RMP credits ExtraX7 (2012-08-30). Copy it only
-into the isolated X7 profile as `C:\sys\bin\YnstallServer.exe`, then cold-restart
-the guest. The original ROM archive remains unchanged. This fixture is neither
-an emulator implementation nor part of the generated installer. The installer's
-fallback relay forwards to the existing ordinary InstallServer and does not
-replace this hacked-environment prerequisite.
+The service's decompression is checked against an independent C++ decoder and
+its adaptation preserves original instructions apart from one call and an added
+16-byte error-handler trampoline. Fourteen host package/service checks pass. With the included formal service,
+Games completes installation of the unchanged game (Installation complete).
 
-EKA2L1 fixes are in `yeatse/EKA2L1`, branch `fix/desktop-first-device-boot`,
-starting at the reference revision above. They cover first-device boot,
-installer callback threading, sparse-container iteration, ROM GOOM export
-compatibility, animation teardown and property teardown. Linux tests pass
-33,446 assertions in 463 cases. iOS and physical-device validation were not run.
+A repeat-install fixture initially returned `KErrAlreadyExists` after emulator
+host uninstall left C:\sys\hash entries for COTD.exe, BiNPDAlibcCOTD.dll and
+ngifilemanagerfactory_2000afbc.dll behind. These three stale hashes were moved out of the isolated profile before repeating the
+inside-Games installation. This cleanup is test setup, not part of the SIS.
+
+EKA2L1 fixes are in [fix/desktop-first-device-boot](https://github.com/yeatse/EKA2L1/tree/fix/desktop-first-device-boot),
+branched from `8ad3e14dad84db064c6efe29abf3553e26610a67`. They cover first-device
+boot, installer callbacks, sparse-container iteration, ROM GOOM exports,
+animation/property teardown, patch UID identity, invalid-GC guest panics,
+CDirectScreenBitmap region semantics, and ScreenPlay alpha-window composition.
+The latter includes a guest regression probe: half-alpha red over blue reads
+RGB(128,0,127), with underlying blue RGB(0,0,255). Linux Release tests pass
+33,446 assertions in 463 cases. iOS validation was unavailable in this Linux
+workspace.
+
+## Retained evidence
+
+- [N97 baseline](screenshots/n97-baseline.png)
+- [X7 inside-Games installation complete](screenshots/x7-install-complete.png)
+- [X7 map with controls](screenshots/x7-map-controls.png)
+- [X7 map with controls hidden](screenshots/x7-map-hidden.png)
+
+These emulator captures document the tested sample, not all N-Gage titles.
+Game imagery retains its original owners' copyright.
