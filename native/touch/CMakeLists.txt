@@ -9,3 +9,6 @@ target_link_libraries(ngage_touch PRIVATE Symbian::Stackless Symbian::EUser
 target_link_options(ngage_touch PRIVATE --gc-sections)
 symbian_publish_executable(ngage_touch UID3 0xe0000960
   IMPORT_PROXIES "${apgrfx_proxy}")
+
+option(NGAGE_DIAGNOSTIC "Flush diagnostic records to the phone filesystem" OFF)
+target_compile_definitions(ngage_touch PRIVATE NGAGE_DIAGNOSTIC=$<BOOL:${NGAGE_DIAGNOSTIC}>)

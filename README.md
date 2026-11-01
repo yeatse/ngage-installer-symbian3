@@ -5,12 +5,12 @@ hacked Symbian^3 phones. The supplied X7/Belle ROM has passed inside-Games insta
 boat-map gameplay with the supplied sample; physical phones have not been tested.
 
 The installer selects the original N97 touch profile on Symbian^3, preserves
-the original client binaries, and adds a native **Games (Touch)** launcher.
+the original client binaries, and adds a background touch-control service.
 During installed games it shows translucent five-way controls on the left,
 A/B (5/7) on the right, and a visibility toggle. The overlay needs AllFiles
 to discover installed game metadata and SwEvent to send key events.
 
-Put legally obtained `.n-gage` files in `E:\n-gage`, open **Games (Touch)**,
+Put legally obtained `.n-gage` files in `E:\n-gage`, open **Games**,
 install inside Games, then launch the game there.
 
 Use **ngage-installer-symbian3.sis** on ordinary hacked Symbian^3/Belle phones,
@@ -57,3 +57,24 @@ unchanged. Original Nokia components retain their upstream identities.
 See [validation](validation/README.md) for fixtures and acceptance steps.
 Upstream Nokia/game material is fetched separately and is not covered by this
 repository's MIT license. No ROM or game is included in the build artifact.
+
+## Diagnostic package — 1.30(1543)
+
+Use `ngage-installer-symbian3-diagnostic.sis` for the Nokia 808 crash investigation.
+No Games (Touch) menu registration or icon is installed. Its existing component
+UID is retained with version 1.0.1 so a native full upgrade removes the old menu
+resources. The service starts during installation and is also started
+on demand by the display compatibility DLL. Open the original Games icon.
+
+Reproduce the failure once immediately after installing, then collect all files
+in `E:\logs\ngage\` (fallback: `C:\logs\ngage\`). `posting.log` records
+factory/construction, allocation, pixel access, drawing and submission boundaries;
+`touch.log` watches installed-game processes and records exit type, reason and
+category. Each record is flushed and the file is closed; output is throttled after
+the first three frames. Logs append across runs. They contain timing, IDs, process
+names and rendering parameters, not a full CPU register dump.
+
+The diagnostic flag is `python tools/build.py ... --diagnostic`; Actions builds
+both ordinary and diagnostic variants using the same cached inputs. The normal
+build disables diagnostic file output. This instrumentation does not establish
+that the reported phone crash is fixed.

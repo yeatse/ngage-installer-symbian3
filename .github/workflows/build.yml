@@ -33,7 +33,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/symbian-sdk"
           tar -xzf downloads/symbian-sdk-0.3.0-linux-x86_64.tar.gz -C "$RUNNER_TEMP/symbian-sdk" --strip-components=1
       - name: Build and verify installer
-        run: python tools/build.py --sdk "$RUNNER_TEMP/symbian-sdk" --installer downloads/n97-ngage.sisx
+        run: |
+          python tools/build.py --sdk "$RUNNER_TEMP/symbian-sdk" --installer downloads/n97-ngage.sisx
+          python tools/build.py --sdk "$RUNNER_TEMP/symbian-sdk" --installer downloads/n97-ngage.sisx --diagnostic
       - uses: actions/upload-artifact@v4
         with:
           name: ngage-installer-symbian3-unsigned

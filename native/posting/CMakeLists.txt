@@ -15,4 +15,7 @@ target_include_directories(PostingSurfaceFactory SYSTEM PRIVATE
 target_compile_options(PostingSurfaceFactory PRIVATE -fshort-wchar -fno-exceptions -fno-rtti
   "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${SYMBIAN_SDK_PREFIX}/cmake/native_cpp_compat.h>")
 target_link_libraries(PostingSurfaceFactory PRIVATE Symbian::EUser
-  Symbian::WindowServer "${SYMBIAN_SDK_PREFIX}/proxies/fbscli/fbscli.dso" Symbian::Gdi)
+  Symbian::FileServer Symbian::WindowServer "${SYMBIAN_SDK_PREFIX}/proxies/fbscli/fbscli.dso" Symbian::Gdi)
+
+option(NGAGE_DIAGNOSTIC "Flush diagnostic records to the phone filesystem" OFF)
+target_compile_definitions(PostingSurfaceFactory PRIVATE NGAGE_DIAGNOSTIC=$<BOOL:${NGAGE_DIAGNOSTIC}>)

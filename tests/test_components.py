@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from component_identity import header_crc, patch_image
 from adapt_client import target_component, SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID
 from merge_packages import merge_embedded
+from native_package import single_file
 from sis import Field, Package, array, array_items, fields, sequence
 
 
@@ -21,6 +22,24 @@ def package(uid):
 
 
 class ComponentTests(unittest.TestCase):
+    def test_background_service_has_only_an_executable_and_runs_after_install(self):
+        base = package(1)
+        info = Field(14, sequence([Field(9, struct.pack('<I', 1)), Field(1, b''),
+                                  array(1, [Field(1, b'')])]) + bytes(2))
+        template = Package(base.uid_header, Field(13, info.encode() + base.controller.payload), base.data)
+        result = single_file(template, self.image(), package_uid=0xe0000961,
+                             name='Background service', target=r'C:\sys\bin\ngage_touch.exe',
+                             run_after_install=True)
+        block = next(f for f in fields(result.controller.payload) if f.kind == 28)
+        descriptions = array_items(fields(block.payload)[0])
+        self.assertEqual(len(descriptions), 1)
+        description = descriptions[0]
+        self.assertEqual(fields(description.payload[:-28])[0].payload.decode('utf-16le'),
+                         r'C:\sys\bin\ngage_touch.exe')
+        self.assertEqual(struct.unpack_from('<II', description.payload, len(description.payload)-28),
+                         (2, 2))
+        self.assertEqual(Package.parse(result.encode()), result)
+
     def test_sdk_components_do_not_leave_the_target_device_list_empty(self):
         original = package(1)
         prerequisites = Field(17, sequence([array(18, []), array(18, [])]))

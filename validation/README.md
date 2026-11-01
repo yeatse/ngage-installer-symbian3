@@ -132,3 +132,19 @@ Software Installer. On a fresh isolated X7/Belle C/E profile, the corrected SIS
 passed compatibility checks without a warning and completed installation. All
 client/native files and SIS registry entries were created. The ordinary-phone
 package does not install or replace YnstallServer. A real 808 retest is pending.
+
+## Diagnostic logging and launcher removal — 1.30(1543)
+
+An 808 user confirmed installation and Games startup, then reported KERN-EXEC 3
+when launching Hooked. This release instruments the guest display DLL and adds
+a hidden process watcher; it does not claim to fix that crash. The ordinary
+Games icon remains the entry point. The helper component is now a single EXE,
+retains its UID with version 1.0.1, and installs no menu/localization/icon files.
+A native full upgrade from the prior component removed its old registration.
+
+[Controlled panic check](diagnostic-panic/README.md) verified durable startup and
+exit type/reason records. The native upgrade exposed EKA2L1's missing SIS registry
+SID-to-filename IPC; the generic fix is in yeatse/EKA2L1 branch
+fix/sisregistry-sid-filename (080d82ee2), with 464 tests / 33,456 assertions passed.
+Normal and diagnostic packages are built separately in CI; only the diagnostic
+variant writes phone files.

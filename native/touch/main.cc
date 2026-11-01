@@ -3,7 +3,7 @@
 #include <f32file.h>
 #include <gdi.h>
 #include <w32std.h>
-#include <apgcli.h>
+#include "../common/trace.h"
 #include <algorithm>
 #include <array>
 #include <memory>
@@ -12,17 +12,6 @@
 namespace {
 TPtrC Text(const char16_t* text) {
     return TPtrC(reinterpret_cast<const TUint16*>(text));
-}
-
-int LaunchGames() {
-    RApaLsSession apps;
-    TInt result = apps.Connect();
-    if (result == KErrNone) {
-        TThreadId thread;
-        result = apps.StartDocument(KNullDesC, TUid::Uid(0x20007b39), thread);
-        apps.Close();
-    }
-    return result;
 }
 
 struct Binding {
@@ -50,6 +39,9 @@ class Controls {
     std::unique_ptr<CWindowGc> gc_;
     RWindowGroup group_;
     RTimer timer_;
+    RProcess watched_;
+    TRequestStatus watch_status_;
+    bool watching_ = false;
     std::array<std::unique_ptr<RWindow>, 8> windows_;
     std::array<TRect, 8> bounds_;
     std::array<int, 16> pointers_;
@@ -208,8 +200,41 @@ class Controls {
         gc_->Deactivate();
     }
 
+    void WatchExit() {
+        if (watching_ && watch_status_ != KRequestPending) {
+            const TExitCategoryName category = watched_.ExitCategory();
+            Ngage::Trace("touch", "game.exit", watched_.ExitType(), watched_.ExitReason(),
+                         static_cast<TInt>(watched_.Id().Id()), &category);
+            watched_.Close(); watching_ = false;
+        }
+    }
+    void WatchGame() {
+#if NGAGE_DIAGNOSTIC
+        if (watching_) return;
+        ScanGames();
+        TFindProcess find(_L("*"));
+        TFullName name;
+        while (find.Next(name) == KErrNone) {
+            RProcess candidate;
+            if (candidate.Open(find) != KErrNone) continue;
+            const TUint32 sid = candidate.SecureId().iId;
+            const bool game = std::find(games_.begin(), games_.end(), sid) != games_.end();
+            if (game && candidate.ExitType() == EExitPending) {
+                const TProcessId id = candidate.Id();
+                candidate.Close();
+                if (watched_.Open(id) == KErrNone) {
+                    watched_.Logon(watch_status_); watching_ = true;
+                    Ngage::Trace("touch", "game.watch", sid, static_cast<TInt>(id.Id()), 0, &name);
+                }
+                return;
+            }
+            candidate.Close();
+        }
+#endif
+    }
     void Poll() {
         ++clock_;
+        WatchExit(); WatchGame();
         const TInt focus = ws_.GetFocusWindowGroup();
         if (focus != last_focus_ || (!active_ && clock_ % 10 == 0)) {
             const auto sid = FocusSid(focus);
@@ -234,18 +259,24 @@ class Controls {
 public:
     Controls() { pointers_.fill(-1); }
     int Run() {
+        Ngage::Trace("touch", "controls.start", 1543);
         TInt result = ws_.Connect();
+        Ngage::Trace("touch", "ws.connect", result);
         if (result != KErrNone) return result;
         if ((result = files_.Connect()) != KErrNone) return result;
+        Ngage::Trace("touch", "screen.create");
         screen_ = std::make_unique<CWsScreenDevice>(ws_);
         if ((result = screen_->Construct()) != KErrNone) return result;
+        Ngage::Trace("touch", "screen.ready");
         gc_ = std::make_unique<CWindowGc>(screen_.get());
         if ((result = gc_->Construct()) != KErrNone) return result;
+        Ngage::Trace("touch", "gc.ready");
         group_ = RWindowGroup(ws_);
         if ((result = group_.Construct(1, EFalse)) != KErrNone) return result;
         group_.EnableReceiptOfFocus(EFalse);
         group_.SetOrdinalPosition(0, 500);
         if ((result = screen_->GetNearestFontInTwips(font_, TFontSpec(Text(u"Nokia Sans S60"), 240))) != KErrNone) return result;
+        Ngage::Trace("touch", "font.ready");
         for (int i = 0; i < 8; ++i) {
             windows_[i] = std::make_unique<RWindow>(ws_);
             if ((result = windows_[i]->Construct(group_, i + 2)) != KErrNone) return result;
@@ -263,8 +294,10 @@ public:
         timer_.After(tick_, 100000);
         requests_ = true;
         ws_.Flush();
+        Ngage::Trace("touch", "controls.ready");
         for (;;) {
             User::WaitForAnyRequest();
+            WatchExit();
             if (events_ != KRequestPending) {
                 if (events_.Int() != KErrNone) return events_.Int();
                 TWsEvent event;
@@ -289,6 +322,11 @@ public:
         }
     }
     ~Controls() {
+        if (watching_) {
+            watched_.LogonCancel(watch_status_);
+            if (watch_status_ == KRequestPending) User::WaitForRequest(watch_status_);
+            watched_.Close();
+        }
         ReleaseAll();
         if (requests_) {
             timer_.Cancel();
@@ -310,13 +348,15 @@ public:
 int main() {
     RMutex single;
     const TInt created = single.CreateGlobal(Text(u"NgageTouchControls"));
-    if (created == KErrAlreadyExists) return LaunchGames();
+    if (created == KErrAlreadyExists) return KErrNone;
     if (created != KErrNone) return created;
-    TInt result = LaunchGames();
-    if (result == KErrNone) {
+    Ngage::Trace("touch", "service.start", 1543);
+    TInt result = KErrNone;
+    {
         Controls controls;
         result = controls.Run();
     }
+    Ngage::Trace("touch", "service.exit", result);
     single.Close();
     return result;
 }

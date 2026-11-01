@@ -6,7 +6,7 @@ from sis import Field, Package, array, fields, sequence
 from merge_packages import replace_block
 
 
-def single_file(template, raw, *, package_uid, name, target):
+def single_file(template, raw, *, package_uid, name, target, run_after_install=False):
     parts = fields(template.controller.payload)
     info_index = next(i for i, f in enumerate(parts) if f.kind == 14)
     info = fields(parts[info_index].payload[:-2])
@@ -21,7 +21,8 @@ def single_file(template, raw, *, package_uid, name, target):
         metadata.append(Field(41, raw[136:144]))
     metadata.append(Field(25, struct.pack('<I', 1)
                           + Field(37, hashlib.sha1(raw).digest()).encode()))
-    description = Field(24, sequence(metadata) + struct.pack('<IIQQI', 1, 0, len(raw), len(raw), 0))
+    operation, options = (2, 1 << 1) if run_after_install else (1, 0)
+    description = Field(24, sequence(metadata) + struct.pack('<IIQQI', operation, options, len(raw), len(raw), 0))
     block = Field(28, sequence([array(24, [description]), array(13, []), array(26, [])]))
     package = replace_block(package, lambda old: block)
     stream = Field(3, struct.pack('<IQ', 0, len(raw)) + raw)

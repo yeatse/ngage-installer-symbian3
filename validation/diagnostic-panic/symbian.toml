@@ -1,0 +1,17 @@
+[project]
+architecture = "armv6"
+name = "diagnostic_panic_probe"
+kind = "e32-import-experiment"
+cmake_preset = "symbian-pic"
+uid3 = 0xe0000994
+
+[package]
+uid = 0xe0000995
+name = "Controlled diagnostic panic probe"
+vendor = "ngage-installer-symbian3"
+executable_name = "diagnostic_panic_probe.exe"
+version = [1, 0, 0]
+
+[application]
+caption = "Diagnostic panic probe"
+short_caption = "Diagnostic panic probe"

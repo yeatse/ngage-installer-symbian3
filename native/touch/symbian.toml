@@ -10,7 +10,7 @@ uid = 0xe0000961
 name = "N-Gage Touch Controls"
 vendor = "ngage-installer-symbian3"
 executable_name = "ngage_touch.exe"
-version = [1, 0, 0]
+version = [1, 0, 1]
 
 [application]
 caption = "Games (Touch)"

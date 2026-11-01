@@ -22,3 +22,8 @@ API's optional DSA clipping method returns `KErrNotSupported`: the window server
 clips and composes the presentation window, including translucent controls.
 No direct framebuffer access or emulator-specific library replacement is used.
 The first 16 original factory/buffer exports retain their ordinal ABI.
+
+The diagnostic build includes synchronous filesystem stage records from
+`native/common/trace.h`. The factory starts the background control/watch service
+without bringing another application to the foreground. No exception handler is
+installed, and the original panic/exit behavior is retained for diagnosis.
