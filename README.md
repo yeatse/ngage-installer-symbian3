@@ -78,3 +78,19 @@ The diagnostic flag is `python tools/build.py ... --diagnostic`; Actions builds
 both ordinary and diagnostic variants using the same cached inputs. The normal
 build disables diagnostic file output. This instrumentation does not establish
 that the reported phone crash is fixed.
+
+### Earlier-stage diagnostics — 1.30(1544)
+
+An 808 trace showed the game exiting with KERN-EXEC 3 while neither drive had a
+posting.log. That does not distinguish an earlier game failure, a DLL loading
+failure, or failure of the first file log call. The new diagnostic helper runs
+isolated child probes only after an observed game panic. `probe.log` records
+on-disk image metadata/fingerprints, loader return codes and resolved paths,
+export lookup, factory entry/return, and loading of the legacy backbuffer DLL.
+`touch.log` records each probe child's exit/timeout. Probe output is identified
+by its PID and must not be mistaken for entry from the game itself.
+
+Install this diagnostic version, reproduce once through the original Games icon,
+wait about one minute after it exits, and collect touch.log, probe.log and any
+posting.log from E:\logs\ngage (or C: fallback). The normal package does not run
+these probes or write diagnostic files. The phone crash is still under diagnosis.

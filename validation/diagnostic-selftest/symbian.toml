@@ -1,0 +1,17 @@
+[project]
+architecture = "armv6"
+name = "diagnostic_selftest"
+kind = "e32-import-experiment"
+cmake_preset = "symbian-pic"
+uid3 = 0xe0000996
+
+[package]
+uid = 0xe0000997
+name = "Diagnostic loader self test"
+vendor = "ngage-installer-symbian3"
+executable_name = "diagnostic_selftest.exe"
+version = [1, 0, 0]
+
+[application]
+caption = "Diagnostic self test"
+short_caption = "Diagnostic self test"

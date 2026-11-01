@@ -148,3 +148,13 @@ SID-to-filename IPC; the generic fix is in yeatse/EKA2L1 branch
 fix/sisregistry-sid-filename (080d82ee2), with 464 tests / 33,456 assertions passed.
 Normal and diagnostic packages are built separately in CI; only the diagnostic
 variant writes phone files.
+
+## Phone report and isolated loader checks — 1.30(1544)
+
+The 808 supplied a complete controls.ready/game.watch/game.exit trace (panic type
+2, reason 3, category KERN-EXEC), with no posting.log on either drive. This is not
+proof that a particular display operation caused the crash. Added a three-phase
+[loader self-test](diagnostic-selftest/README.md), triggered only after game panic
+in ordinary diagnostic use. It leaves the game unmodified and catches failures
+in separate processes. The display file fingerprint is included in build-report
+so stale or different installed DLLs can be identified from phone records.

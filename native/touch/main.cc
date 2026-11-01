@@ -4,6 +4,7 @@
 #include <gdi.h>
 #include <w32std.h>
 #include "../common/trace.h"
+#include "probe.h"
 #include <algorithm>
 #include <array>
 #include <memory>
@@ -42,6 +43,11 @@ class Controls {
     RProcess watched_;
     TRequestStatus watch_status_;
     bool watching_ = false;
+    RProcess probe_;
+    bool probing_ = false;
+    bool probe_completed_ = false;
+    TInt probe_mode_ = 0;
+    unsigned probe_start_ = 0;
     std::array<std::unique_ptr<RWindow>, 8> windows_;
     std::array<TRect, 8> bounds_;
     std::array<int, 16> pointers_;
@@ -200,12 +206,46 @@ class Controls {
         gc_->Deactivate();
     }
 
+    void StartProbe(TInt mode) {
+#if NGAGE_DIAGNOSTIC
+        probe_mode_ = mode;
+        TInt error = probe_.Create(_L("C:\\sys\\bin\\ngage_touch.exe"),
+                                  mode == 1 ? _L("--probe-load") : mode == 2 ? _L("--probe-factory") : _L("--probe-backbuffer"));
+        Ngage::Trace("touch", "probe.create", mode, error);
+        if (error != KErrNone) { probe_completed_ = true; return; }
+        probing_ = true; probe_start_ = clock_;
+        probe_.Resume();
+#else
+        (void)mode;
+#endif
+    }
+    void CheckProbe() {
+#if NGAGE_DIAGNOSTIC
+        if (!probing_) return;
+        if (probe_.ExitType() == EExitPending) {
+            if (clock_ - probe_start_ >= 200) {
+                Ngage::Trace("touch", "probe.timeout", probe_mode_);
+                probe_.Kill(KErrTimedOut);
+            }
+            return;
+        }
+        const TInt reason = probe_.ExitReason();
+        const TExitType type = probe_.ExitType();
+        const TExitCategoryName category = probe_.ExitCategory();
+        Ngage::Trace("touch", "probe.exit", type, reason, probe_mode_, &category);
+        probe_.Close(); probing_ = false;
+        if (probe_mode_ < 3 && type != EExitPanic && reason == KErrNone) StartProbe(probe_mode_ + 1);
+        else probe_completed_ = true;
+#endif
+    }
     void WatchExit() {
         if (watching_ && watch_status_ != KRequestPending) {
             const TExitCategoryName category = watched_.ExitCategory();
             Ngage::Trace("touch", "game.exit", watched_.ExitType(), watched_.ExitReason(),
                          static_cast<TInt>(watched_.Id().Id()), &category);
+            const TBool crashed = watched_.ExitType() == EExitPanic;
             watched_.Close(); watching_ = false;
+            if (crashed && !probing_ && !probe_completed_) StartProbe(1);
         }
     }
     void WatchGame() {
@@ -225,6 +265,8 @@ class Controls {
                 if (watched_.Open(id) == KErrNone) {
                     watched_.Logon(watch_status_); watching_ = true;
                     Ngage::Trace("touch", "game.watch", sid, static_cast<TInt>(id.Id()), 0, &name);
+                    const TFileName image = watched_.FileName();
+                    Ngage::Trace("touch", "game.image", sid, 0, 0, &image);
                 }
                 return;
             }
@@ -234,7 +276,7 @@ class Controls {
     }
     void Poll() {
         ++clock_;
-        WatchExit(); WatchGame();
+        WatchExit(); CheckProbe(); WatchGame();
         const TInt focus = ws_.GetFocusWindowGroup();
         if (focus != last_focus_ || (!active_ && clock_ % 10 == 0)) {
             const auto sid = FocusSid(focus);
@@ -258,8 +300,8 @@ class Controls {
 
 public:
     Controls() { pointers_.fill(-1); }
-    int Run() {
-        Ngage::Trace("touch", "controls.start", 1543);
+    int Run(TBool self_test = EFalse) {
+        Ngage::Trace("touch", "controls.start", 1544);
         TInt result = ws_.Connect();
         Ngage::Trace("touch", "ws.connect", result);
         if (result != KErrNone) return result;
@@ -295,9 +337,10 @@ public:
         requests_ = true;
         ws_.Flush();
         Ngage::Trace("touch", "controls.ready");
+        if (self_test) StartProbe(1);
         for (;;) {
             User::WaitForAnyRequest();
-            WatchExit();
+            WatchExit(); CheckProbe();
             if (events_ != KRequestPending) {
                 if (events_.Int() != KErrNone) return events_.Int();
                 TWsEvent event;
@@ -322,6 +365,10 @@ public:
         }
     }
     ~Controls() {
+        if (probing_) {
+            probe_.Kill(KErrCancel);
+            probe_.Close();
+        }
         if (watching_) {
             watched_.LogonCancel(watch_status_);
             if (watch_status_ == KRequestPending) User::WaitForRequest(watch_status_);
@@ -346,15 +393,20 @@ public:
 }
 
 int main() {
+    TBuf<64> command;
+    if (User::CommandLineLength() <= command.MaxLength()) User::CommandLine(command);
+    if (command == _L("--probe-load")) return Ngage::RunProbe(1);
+    if (command == _L("--probe-factory")) return Ngage::RunProbe(2);
+    if (command == _L("--probe-backbuffer")) return Ngage::RunProbe(3);
     RMutex single;
     const TInt created = single.CreateGlobal(Text(u"NgageTouchControls"));
     if (created == KErrAlreadyExists) return KErrNone;
     if (created != KErrNone) return created;
-    Ngage::Trace("touch", "service.start", 1543);
+    Ngage::Trace("touch", "service.start", 1544);
     TInt result = KErrNone;
     {
         Controls controls;
-        result = controls.Run();
+        result = controls.Run(command == _L("--self-test"));
     }
     Ngage::Trace("touch", "service.exit", result);
     single.Close();

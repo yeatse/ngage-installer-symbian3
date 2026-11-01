@@ -92,7 +92,12 @@ def main():
     suffix = '-diagnostic' if args.diagnostic else ''
     target = args.output / f'ngage-installer-symbian3{suffix}.sis'
     target.write_bytes(result)
-    report.update({'sha256': hashlib.sha256(result).hexdigest(), 'bytes': len(result),
+    posting_fingerprint = 2166136261
+    for value in posting_image:
+        posting_fingerprint = ((posting_fingerprint ^ value) * 16777619) & 0xffffffff
+    report.update({'posting_image_fnv1a': f'{posting_fingerprint:08x}',
+                   'posting_image_sha256': hashlib.sha256(posting_image).hexdigest(),
+                   'sha256': hashlib.sha256(result).hexdigest(), 'bytes': len(result),
                    'signed': False, 'sdk_version': '0.3.0',
                    'original_payload_preserved': True,
                    'guest_install_service': 'existing phone installation service',
