@@ -94,3 +94,15 @@ Install this diagnostic version, reproduce once through the original Games icon,
 wait about one minute after it exits, and collect touch.log, probe.log and any
 posting.log from E:\logs\ngage (or C: fallback). The normal package does not run
 these probes or write diagnostic files. The phone crash is still under diagnosis.
+
+### Loader capability correction — 1.30(1545)
+
+The 808's 1544 probe confirmed the exact display DLL fingerprint and returned
+KErrPermissionDenied (-46) before ordinal lookup. The display image declared
+ALL capabilities, including TCB, but ws32/fbscli provide ALL-TCB. Symbian's
+loader checks each import against its importing image's capabilities, so that
+edge is invalid even when the calling process itself does not hold TCB.
+The replacement now declares ALL-TCB (0x000ffffe), matching the original NGI
+backbuffer and the window/bitmap dependencies. Game EXEs and ROM files are
+unchanged. The same isolated diagnostics remain enabled in the diagnostic SIS.
+Physical-device gameplay after this change still needs confirmation.

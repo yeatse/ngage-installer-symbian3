@@ -9,7 +9,7 @@ inline TUint HeaderWord(const TDesC8& bytes, TInt offset) {
 }
 inline TInt RunProbe(TInt mode) {
 #if NGAGE_DIAGNOSTIC
-    Trace("probe", "begin", 1544, mode);
+    Trace("probe", "begin", 1545, mode);
     const TPtrC image_path(mode == 3 ? _L("E:\\sys\\bin\\ngibackbuffer.dll")
                                     : _L("C:\\sys\\bin\\PostingSurfaceFactory.dll"));
     RFs fs;
@@ -26,6 +26,7 @@ inline TInt RunProbe(TInt mode) {
             Trace("probe", "image.header", error, size, header.Length());
             if (header.Length() == 156) {
                 Trace("probe", "image.uids", HeaderWord(header,0), HeaderWord(header,4), HeaderWord(header,8));
+                Trace("probe", "image.sid.caps", HeaderWord(header,128), HeaderWord(header,136), HeaderWord(header,140));
                 Trace("probe", "image.version.flags.cpu", HeaderWord(header,24), HeaderWord(header,44),
                       static_cast<TUint8>(header[122]) | (static_cast<TUint8>(header[123]) << 8));
                 Trace("probe", "image.entry.code", HeaderWord(header,72), HeaderWord(header,100), HeaderWord(header,48));

@@ -301,7 +301,7 @@ class Controls {
 public:
     Controls() { pointers_.fill(-1); }
     int Run(TBool self_test = EFalse) {
-        Ngage::Trace("touch", "controls.start", 1544);
+        Ngage::Trace("touch", "controls.start", 1545);
         TInt result = ws_.Connect();
         Ngage::Trace("touch", "ws.connect", result);
         if (result != KErrNone) return result;
@@ -402,7 +402,7 @@ int main() {
     const TInt created = single.CreateGlobal(Text(u"NgageTouchControls"));
     if (created == KErrAlreadyExists) return KErrNone;
     if (created != KErrNone) return created;
-    Ngage::Trace("touch", "service.start", 1544);
+    Ngage::Trace("touch", "service.start", 1545);
     TInt result = KErrNone;
     {
         Controls controls;

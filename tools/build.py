@@ -79,9 +79,10 @@ def main():
                          name='N-Gage Belle SWI compatibility',
                          target=r'C:\sys\bin\YnstallServer.exe')
     posting_path = compile_native(sdk, 'posting', args.diagnostic) / 'PostingSurfaceFactory.dll'
+    # Window/bitmap DLLs provide ALL-TCB; imports must cover their importer's caps.
     posting_image = patch_image(posting_path.read_bytes(), 0xe0000962,
                                uid2=0x1000008d, expected_uid1=0x10000079,
-                               expected_uid2=0x1000008d, capabilities=0xfffff)
+                               expected_uid2=0x1000008d, capabilities=0xffffe)
     posting = single_file(touch, posting_image, package_uid=0xe0000963,
                           name='N-Gage native display compatibility',
                           target=r'C:\sys\bin\PostingSurfaceFactory.dll')
@@ -103,6 +104,7 @@ def main():
                    'guest_install_service': 'existing phone installation service',
                    'guest_display': 'native window and bitmap APIs',
                    'touch_capabilities': ['AllFiles', 'SwEvent'],
+                   'posting_capabilities_mask': '000ffffe',
                    'diagnostic': args.diagnostic, 'touch_launcher_icon': False})
     (args.output / f'build-report{suffix}.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'Built {target}: {report}')

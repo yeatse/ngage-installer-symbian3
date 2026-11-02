@@ -158,3 +158,28 @@ proof that a particular display operation caused the crash. Added a three-phase
 in ordinary diagnostic use. It leaves the game unmodified and catches failures
 in separate processes. The display file fingerprint is included in build-report
 so stale or different installed DLLs can be identified from phone records.
+
+## 808 loader rejection — 1.30(1545)
+
+The physical 808's 1544 probe returned -46 (KErrPermissionDenied) at the first
+RLibrary::Load, before ordinal lookup/factory entry. Its 15,260-byte display
+image fingerprint 53fda007 matched the delivered diagnostic package.
+The display DLL had capabilities 0x000fffff, while the X7 ROM ws32/fbscli
+headers declare 0x000ffffe. The original ngibackbuffer also uses 0x000ffffe.
+The display replacement now uses ALL-TCB, without reducing any game EXE's
+capabilities or modifying the ROM.
+
+Symbian's [RLdrReq::CheckSecInfo](https://github.com/SymbianSource/oss.FCL.sf.os.kernelhwsrv/blob/master/userlibandfileserver/fileserver/sfile/sf_ldr.cpp)
+requires the candidate to cover iPlatSecCaps; [E32Image::ProcessImports](https://github.com/SymbianSource/oss.FCL.sf.os.kernelhwsrv/blob/master/userlibandfileserver/fileserver/sfile/sf_lepoc.cpp)
+sets that requirement from the importing image's iS.iCaps. A low-capability
+probe process therefore does not exempt the importing display DLL's TCB edge.
+EKA2L1 lacked this dynamic-library check; the independent branch
+`fix/loader-capability-checks` adds it before exposing a library handle.
+
+Validation used Linux Release EKA2L1 `573148ee2`: all 465 tests / 33,463
+assertions passed. Its guest loader rejected the unchanged 1544 display image
+with -46. The final 1545 diagnostic SIS then upgraded through the X7 ROM SWI;
+the helper started with build marker 1545. Its self-test recorded capabilities
+1048574, display fingerprint 713b6259, and successful load/factory/backbuffer
+phases. All 17 installer host checks passed. These checks establish the loader
+correction, not physical 808 gameplay or completion of later display operations.
