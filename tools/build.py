@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 from adapt_client import adapt_client, target_component
-from audio_diagnostic import instrument_audio
+from audio_compat import adapt_audio
 from component_identity import patch_image, replace_image, header_crc
 from extract_client import extract_client
 from merge_packages import merge_embedded
@@ -90,17 +90,16 @@ def main():
                           target=r'C:\sys\bin\PostingSurfaceFactory.dll')
     parent = Package.parse(adapted)
     components = [posting, touch]
-    if args.diagnostic:
-        parent = instrument_audio(parent)
-        audio_path = compile_native(sdk, 'audio', True) / 'NgageSoundX.dll'
-        audio_image = bytearray(patch_image(audio_path.read_bytes(), 0xe0000964,
-                                uid2=0x1000008d, expected_uid1=0x10000079,
-                                expected_uid2=0x1000008d, capabilities=0xffffe))
-        struct.pack_into('<I', audio_image, 24, 0x000a0000)
-        struct.pack_into('<I', audio_image, 20, header_crc(audio_image, 156))
-        components.append(single_file(touch, bytes(audio_image), package_uid=0xe0000965,
-                                     name='N-Gage diagnostic audio forwarding',
-                                     target=r'C:\sys\bin\NgageSoundX.dll'))
+    parent = adapt_audio(parent)
+    audio_path = compile_native(sdk, 'audio', args.diagnostic) / 'NgageSoundX.dll'
+    audio_image = bytearray(patch_image(audio_path.read_bytes(), 0xe0000964,
+                            uid2=0x1000008d, expected_uid1=0x10000079,
+                            expected_uid2=0x1000008d, capabilities=0xffffe))
+    struct.pack_into('<I', audio_image, 24, 0x000a0000)
+    struct.pack_into('<I', audio_image, 20, header_crc(audio_image, 156))
+    components.append(single_file(touch, bytes(audio_image), package_uid=0xe0000965,
+                                 name='N-Gage native audio compatibility',
+                                 target=r'C:\sys\bin\NgageSoundX.dll'))
     # Ordinary hacked phones already supply InstallServer. The X7 CFW backend
     # is a separate package variant; replacing a running SWI service is unsafe.
     result = merge_embedded(parent, components).encode()
@@ -115,9 +114,10 @@ def main():
                    'posting_image_sha256': hashlib.sha256(posting_image).hexdigest(),
                    'sha256': hashlib.sha256(result).hexdigest(), 'bytes': len(result),
                    'signed': False, 'sdk_version': '0.3.0',
-                   'original_payload_preserved': not args.diagnostic,
+                   'original_payload_preserved': False,
                    'original_executable_code_preserved': True,
                    'audio_import_diagnostic': args.diagnostic,
+                   'audio_volume_compatibility': True,
                    'guest_install_service': 'existing phone installation service',
                    'guest_display': 'native window and bitmap APIs',
                    'touch_capabilities': ['AllFiles', 'SwEvent'],

@@ -27,8 +27,9 @@ constexpr std::array<Binding, 9> kBindings{{
     {EStdKeyRightArrow, EKeyRightArrow, u"→"},
     {EStdKeyDownArrow, EKeyDownArrow, u"↓"},
     {'5', '5', u"A"}, {'7', '7', u"B"},
-    {EStdKeyDevice0, EKeyDevice0, u"L"},
-    {EStdKeyDevice1, EKeyDevice1, u"R"}
+    // The N97 touch profile maps its softkeys to Enter and Backspace.
+    {EStdKeyEnter, EKeyEnter, u"L"},
+    {EStdKeyBackspace, EKeyBackspace, u"R"}
 }};
 
 constexpr int kButtonCount = kBindings.size();
@@ -108,7 +109,9 @@ class Controls {
         key.iCode = kBindings[button].code;
         key.iRepeats = repeats;
         *event.Key() = key;
-        ws_.SendEventToWindowGroup(target_, event);
+        const TInt result = ws_.SendEventToWindowGroup(target_, event);
+        if (button >= 7 && repeats == 0) Ngage::Trace("touch", "softkey.send", button, key.iScanCode, type);
+        if (result != KErrNone) Ngage::Trace("touch", "key.send.error", result, button, target_);
     }
 
     void ReleaseAll() {
@@ -316,7 +319,7 @@ class Controls {
 public:
     Controls() { pointers_.fill(-1); }
     int Run(TBool self_test = EFalse) {
-        Ngage::Trace("touch", "controls.start", 1547);
+        Ngage::Trace("touch", "controls.start", 1548);
         TInt result = ws_.Connect();
         Ngage::Trace("touch", "ws.connect", result);
         if (result != KErrNone) return result;
@@ -417,7 +420,7 @@ int main() {
     const TInt created = single.CreateGlobal(Text(u"NgageTouchControls"));
     if (created == KErrAlreadyExists) return KErrNone;
     if (created != KErrNone) return created;
-    Ngage::Trace("touch", "service.start", 1547);
+    Ngage::Trace("touch", "service.start", 1548);
     TInt result = KErrNone;
     {
         Controls controls;

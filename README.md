@@ -140,3 +140,20 @@ posting.log and note that absence. Keep game volume settings in the report.
 R is at the upper right and L at the lower right, sharing A/B's horizontal
 position. The hide/show button is at the upper left. Audio diagnostics remain
 available in the diagnostic package.
+
+### Phone audio range and N97 softkeys — 1.30(1548)
+
+The 808 log reports volume request 7 with ROM maximum 10000, followed by
+successful initialization and repeated PlayData calls. The pinned N97 profile
+uses audioclipmaxvolume 10. Both SIS variants now include the native audio
+bridge and scale NGI's 0–10 stream volume to the ROM's actual maximum: 7 becomes
+7000 on the 808 and stays 7 on a maximum-10 backend. Mute stays zero. The normal
+variant disables trace output; the diagnostic variant records legacy/applied/max
+values. Other playback parameters and the ROM implementation remain unchanged.
+
+L/R now send Enter/Backspace, matching N97 orientation_0/orientation_90 input
+maps (scan 3 -> logical 0x01000000, scan 1 -> 0x02000000). Device0/Device1 were
+absent from those maps. Layout is retained: L lower right, R upper right;
+show/hide upper left. The diagnostic touch.log records softkey scan/event types
+and any window-server send failure. Earlier descriptions of generic softkey
+mapping and diagnostic-only audio routing are superseded by this release.

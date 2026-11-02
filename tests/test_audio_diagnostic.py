@@ -9,8 +9,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from adapt_client import adapt_client
-from audio_diagnostic import (AUDIO_SHA256, ORIGINAL_IMPORT, DIAGNOSTIC_IMPORT,
-                              bytepair_image, redirect_audio_image, instrument_audio)
+from audio_compat import (AUDIO_SHA256, ORIGINAL_IMPORT, COMPAT_IMPORT,
+                              bytepair_image, redirect_audio_image, adapt_audio)
 from component_identity import header_crc
 from extract_client import extract_client
 from merge_packages import data_units
@@ -34,7 +34,7 @@ class AudioDiagnosticTests(unittest.TestCase):
         offset, size = struct.unpack_from('<I', plain, 100)[0], struct.unpack_from('<I', plain, 48)[0]
         self.assertEqual(routed[offset:offset + size], plain[offset:offset + size])
         self.assertEqual(len(routed), len(plain))
-        self.assertEqual(routed, plain.replace(ORIGINAL_IMPORT, DIAGNOSTIC_IMPORT))
+        self.assertEqual(routed, plain.replace(ORIGINAL_IMPORT, COMPAT_IMPORT))
         self.assertEqual(struct.unpack_from('<I', routed, 20)[0], header_crc(routed, 156))
 
     def test_unknown_or_truncated_audio_is_rejected(self):
@@ -44,7 +44,7 @@ class AudioDiagnosticTests(unittest.TestCase):
             bytepair_image(self.raw[:-1])
 
     def test_both_copies_and_file_hashes_are_updated(self):
-        result = instrument_audio(self.package)
+        result = adapt_audio(self.package)
         changed = 0
         for old_unit, new_unit in zip(data_units(self.package), data_units(result), strict=True):
             for old, new in zip(array_items(fields(old_unit.payload)[0]), array_items(fields(new_unit.payload)[0]), strict=True):

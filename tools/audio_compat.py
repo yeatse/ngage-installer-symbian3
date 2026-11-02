@@ -1,4 +1,4 @@
-"""Redirect only NGI's MMF import through a diagnostic ROM forwarder."""
+"""Route NGI MMF imports through the native audio compatibility bridge."""
 import hashlib
 import struct
 
@@ -8,7 +8,7 @@ from sis import Field, Package, array, array_items, decompress, fields, sequence
 
 AUDIO_SHA256 = '7803d9c064a12eaf20cf42f0b3ddc7e436993ba1950d70843641d5f95b664485'
 ORIGINAL_IMPORT = b'MmfDevSound{000a0000}[100058cc].dll'
-DIAGNOSTIC_IMPORT = b'NgageSoundX{000a0000}[e0000964].dll'
+COMPAT_IMPORT = b'NgageSoundX{000a0000}[e0000964].dll'
 
 
 def bytepair_image(raw):
@@ -86,13 +86,13 @@ def redirect_audio_image(raw):
     code_size = struct.unpack_from('<I', image, 48)[0]
     if import_offset < code_offset + code_size or image.count(ORIGINAL_IMPORT) != 1:
         raise ValueError('Unexpected audio import layout')
-    result = image[:import_offset] + image[import_offset:].replace(ORIGINAL_IMPORT, DIAGNOSTIC_IMPORT)
+    result = image[:import_offset] + image[import_offset:].replace(ORIGINAL_IMPORT, COMPAT_IMPORT)
     if len(result) != len(image) or result[code_offset:code_offset + code_size] != image[code_offset:code_offset + code_size]:
         raise ValueError('Audio redirection changed executable code')
     return result
 
 
-def instrument_audio(package):
+def adapt_audio(package):
     units, original, updated, payload_count = data_units(package), None, None, 0
     for ui, unit in enumerate(units):
         files = array_items(fields(unit.payload)[0])

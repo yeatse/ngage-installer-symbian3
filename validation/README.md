@@ -217,3 +217,23 @@ Verified the package's new helper in the existing Hooked/X7 game fixture:
 R at upper right, L at lower right, sharing A/B's x coordinate. Hide/show
 remains at upper left, and hiding leaves only its centered plus visible.
 Both ordinary and diagnostic packages were rebuilt.
+
+## Phone volume and softkey mapping — 1.30(1548)
+
+808's 1547 audio.log confirms repeated successful playback calls while NGI
+requests volume 7 against MaxVolume 10000 (default/current initially 5000, then
+7). The pinned profile's audioclipmaxvolume is 10. Added a shared integer volume
+conversion used before restoring the MMF call's r1 argument. Host checks cover
+mute, full scale, intermediate rounding, invalid ranges, and INT_MAX using an
+independent 64-bit reference. In particular 7/10 -> 7000/10000; a maximum-10
+backend preserves all legacy requests. Both normal and diagnostic packages now
+include this compatibility path; only the latter writes logs.
+
+The pinned N97 profile's orientation_0 and orientation_90 keytranslationdata
+map scans 3 and 1 to softkey bits 0x01000000 and 0x02000000; scans 0xa4/0xa5
+(Device0/Device1) are absent. L/R use Enter/Backspace accordingly, with diagnostic
+send status and scan/event records. The X7 game fixture logs the new scan 3/1
+events and the volume bridge's 7 -> 7 / MaxVolume 10 path. The 808's audible
+output and softkey behavior still need physical retesting with this version.
+
+Final normal/diagnostic builds completed and all 21 host checks passed.
