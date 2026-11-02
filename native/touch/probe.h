@@ -9,7 +9,7 @@ inline TUint HeaderWord(const TDesC8& bytes, TInt offset) {
 }
 inline TInt RunProbe(TInt mode) {
 #if NGAGE_DIAGNOSTIC
-    Trace("probe", "begin", 1546, mode);
+    Trace("probe", "begin", 1547, mode);
     const TPtrC image_path(mode == 3 ? _L("E:\\sys\\bin\\ngibackbuffer.dll")
                                     : _L("C:\\sys\\bin\\PostingSurfaceFactory.dll"));
     RFs fs;

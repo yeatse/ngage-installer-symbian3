@@ -134,3 +134,9 @@ SIS retains the original NGI audio payload without this forwarding component.
 For a phone report, enable music/effects in the game and reproduce for about
 15 seconds, then send audio.log and touch.log. If audio.log is absent, include
 posting.log and note that absence. Keep game volume settings in the report.
+
+### Control positions — 1.30(1547)
+
+R is at the upper right and L at the lower right, sharing A/B's horizontal
+position. The hide/show button is at the upper left. Audio diagnostics remain
+available in the diagnostic package.

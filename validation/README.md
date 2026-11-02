@@ -210,3 +210,10 @@ forwarding and log capture, not physical 808 audio output or audible emulator
 output (the Linux test environment uses an ALSA null output).
 
 Final ordinary and diagnostic builds completed; all 20 host checks passed.
+
+## Control placement — 1.30(1547)
+
+Verified the package's new helper in the existing Hooked/X7 game fixture:
+R at upper right, L at lower right, sharing A/B's x coordinate. Hide/show
+remains at upper left, and hiding leaves only its centered plus visible.
+Both ordinary and diagnostic packages were rebuilt.

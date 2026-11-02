@@ -143,9 +143,9 @@ class Controls {
         const int right = size.iWidth - unit - 8;
         bounds_[5] = TRect(right, y + unit / 2, right + unit, y + unit * 3 / 2);
         bounds_[6] = TRect(right, y + unit * 3 / 2 + 8, right + unit, y + unit * 5 / 2 + 8);
-        bounds_[7] = TRect(x + unit, y + 3 * unit + 8, x + 2 * unit, y + 4 * unit + 8);
-        bounds_[8] = TRect(right, y + 3 * unit + 8, right + unit, y + 4 * unit + 8);
-        bounds_[kToggle] = TRect(size.iWidth - 38, 8, size.iWidth - 6, 40);
+        bounds_[7] = TRect(right, size.iHeight - unit - 8, right + unit, size.iHeight - 8);
+        bounds_[8] = TRect(right, 8, right + unit, 8 + unit);
+        bounds_[kToggle] = TRect(6, 8, 38, 40);
         for (int i = 0; i < kWindowCount; ++i) windows_[i]->SetExtent(bounds_[i].iTl, bounds_[i].Size());
         Visible();
     }
@@ -316,7 +316,7 @@ class Controls {
 public:
     Controls() { pointers_.fill(-1); }
     int Run(TBool self_test = EFalse) {
-        Ngage::Trace("touch", "controls.start", 1546);
+        Ngage::Trace("touch", "controls.start", 1547);
         TInt result = ws_.Connect();
         Ngage::Trace("touch", "ws.connect", result);
         if (result != KErrNone) return result;
@@ -417,7 +417,7 @@ int main() {
     const TInt created = single.CreateGlobal(Text(u"NgageTouchControls"));
     if (created == KErrAlreadyExists) return KErrNone;
     if (created != KErrNone) return created;
-    Ngage::Trace("touch", "service.start", 1546);
+    Ngage::Trace("touch", "service.start", 1547);
     TInt result = KErrNone;
     {
         Controls controls;

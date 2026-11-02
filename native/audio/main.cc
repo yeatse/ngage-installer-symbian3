@@ -18,7 +18,7 @@ State& Session() {
         if (!memory) User::Panic(_L("NgageAudio"), KErrNoMemory);
         state = new(memory) State;
         TInt result = state->library.Load(_L("Z:\\sys\\bin\\MmfDevSound.dll"));
-        Ngage::Trace("audio", "rom.load", result, 1546);
+        Ngage::Trace("audio", "rom.load", result, 1547);
         if (result != KErrNone) User::Panic(_L("NgageAudio"), result);
         result = UserSvr::DllSetTls(reinterpret_cast<TInt>(&_E32Startup), 0xe0000964, state);
         if (result != KErrNone) User::Panic(_L("NgageAudio"), result);
