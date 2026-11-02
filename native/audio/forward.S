@@ -1,0 +1,62 @@
+.syntax unified
+.arm
+.text
+.macro FORWARD ordinal
+.global AudioForward\ordinal
+.type AudioForward\ordinal, %function
+AudioForward\ordinal:
+    push {r0-r3, ip, lr}
+    mov r0, #\ordinal
+    mov r1, sp
+    bl AudioResolve
+    mov ip, r0
+    pop {r0-r3}
+    add sp, sp, #4
+    pop {lr}
+    bx ip
+.size AudioForward\ordinal, .-AudioForward\ordinal
+.endm
+FORWARD 1
+FORWARD 2
+FORWARD 3
+FORWARD 4
+FORWARD 5
+FORWARD 6
+FORWARD 7
+FORWARD 8
+FORWARD 9
+FORWARD 10
+FORWARD 11
+FORWARD 12
+FORWARD 13
+FORWARD 14
+FORWARD 15
+FORWARD 16
+FORWARD 17
+FORWARD 18
+FORWARD 19
+FORWARD 20
+FORWARD 21
+FORWARD 22
+FORWARD 23
+FORWARD 24
+FORWARD 25
+FORWARD 26
+FORWARD 27
+FORWARD 28
+FORWARD 29
+FORWARD 30
+FORWARD 31
+FORWARD 32
+FORWARD 33
+FORWARD 34
+FORWARD 35
+FORWARD 36
+FORWARD 37
+FORWARD 38
+FORWARD 39
+FORWARD 40
+FORWARD 41
+FORWARD 42
+FORWARD 43
+FORWARD 44

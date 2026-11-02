@@ -20,14 +20,20 @@ struct Binding {
     TInt code;
     const char16_t* label;
 };
-constexpr std::array<Binding, 7> kBindings{{
+constexpr std::array<Binding, 9> kBindings{{
     {EStdKeyUpArrow, EKeyUpArrow, u"↑"},
     {EStdKeyLeftArrow, EKeyLeftArrow, u"←"},
     {EStdKeyDevice3, EKeyDevice3, u"OK"},
     {EStdKeyRightArrow, EKeyRightArrow, u"→"},
     {EStdKeyDownArrow, EKeyDownArrow, u"↓"},
-    {'5', '5', u"A"}, {'7', '7', u"B"}
+    {'5', '5', u"A"}, {'7', '7', u"B"},
+    {EStdKeyDevice0, EKeyDevice0, u"L"},
+    {EStdKeyDevice1, EKeyDevice1, u"R"}
 }};
+
+constexpr int kButtonCount = kBindings.size();
+constexpr int kToggle = kButtonCount;
+constexpr int kWindowCount = kButtonCount + 1;
 
 struct ScopedWsSession : RWsSession {
     ~ScopedWsSession() { Close(); }
@@ -48,11 +54,11 @@ class Controls {
     bool probe_completed_ = false;
     TInt probe_mode_ = 0;
     unsigned probe_start_ = 0;
-    std::array<std::unique_ptr<RWindow>, 8> windows_;
-    std::array<TRect, 8> bounds_;
+    std::array<std::unique_ptr<RWindow>, kWindowCount> windows_;
+    std::array<TRect, kWindowCount> bounds_;
     std::array<int, 16> pointers_;
-    std::array<int, 7> held_{};
-    std::array<unsigned, 7> repeat_at_{};
+    std::array<int, kButtonCount> held_{};
+    std::array<unsigned, kButtonCount> repeat_at_{};
     std::vector<TUint32> games_;
     CFont* font_ = nullptr;
     TRequestStatus events_, redraws_, tick_;
@@ -92,7 +98,7 @@ class Controls {
     }
 
     void Send(int button, TInt type, TInt repeats = 0) {
-        if (target_ <= 0 || button < 0 || button >= 7) return;
+        if (target_ <= 0 || button < 0 || button >= kButtonCount) return;
         TWsEvent event;
         event.SetType(type);
         event.SetTimeNow();
@@ -106,7 +112,7 @@ class Controls {
     }
 
     void ReleaseAll() {
-        for (int i = 0; i < 7; ++i) {
+        for (int i = 0; i < kButtonCount; ++i) {
             if (held_[i]) Send(i, EEventKeyUp);
             held_[i] = 0;
         }
@@ -114,8 +120,8 @@ class Controls {
     }
 
     void Visible() {
-        for (int i = 0; i < 8; ++i) {
-            windows_[i]->SetVisible(active_ && (i == 7 || !hidden_));
+        for (int i = 0; i < kWindowCount; ++i) {
+            windows_[i]->SetVisible(active_ && (i == kToggle || !hidden_));
             if (active_) windows_[i]->Invalidate();
         }
     }
@@ -137,20 +143,22 @@ class Controls {
         const int right = size.iWidth - unit - 8;
         bounds_[5] = TRect(right, y + unit / 2, right + unit, y + unit * 3 / 2);
         bounds_[6] = TRect(right, y + unit * 3 / 2 + 8, right + unit, y + unit * 5 / 2 + 8);
-        bounds_[7] = TRect(size.iWidth - 38, 8, size.iWidth - 6, 40);
-        for (int i = 0; i < 8; ++i) windows_[i]->SetExtent(bounds_[i].iTl, bounds_[i].Size());
+        bounds_[7] = TRect(x + unit, y + 3 * unit + 8, x + 2 * unit, y + 4 * unit + 8);
+        bounds_[8] = TRect(right, y + 3 * unit + 8, right + unit, y + 4 * unit + 8);
+        bounds_[kToggle] = TRect(size.iWidth - 38, 8, size.iWidth - 6, 40);
+        for (int i = 0; i < kWindowCount; ++i) windows_[i]->SetExtent(bounds_[i].iTl, bounds_[i].Size());
         Visible();
     }
 
     void Press(int pointer, int button) {
         const int old = pointers_[pointer];
         if (old == button) return;
-        if (old >= 0 && old < 7 && --held_[old] == 0) {
+        if (old >= 0 && old < kButtonCount && --held_[old] == 0) {
             Send(old, EEventKeyUp);
             windows_[old]->Invalidate();
         }
         pointers_[pointer] = button;
-        if (button >= 0 && button < 7 && held_[button]++ == 0) {
+        if (button >= 0 && button < kButtonCount && held_[button]++ == 0) {
             Send(button, EEventKeyDown);
             Send(button, EEventKey);
             repeat_at_[button] = clock_ + 4;
@@ -160,7 +168,7 @@ class Controls {
 
     void Pointer(const TWsEvent& event) {
         const int index = event.Handle() - 2;
-        if (index < 0 || index >= 8 || !active_) return;
+        if (index < 0 || index >= kWindowCount || !active_) return;
         const auto* pointer = event.Pointer();
         const int number = pointer->PointerNumber();
         if (number < 0 || number >= static_cast<int>(pointers_.size())) return;
@@ -169,7 +177,7 @@ class Controls {
             return;
         }
         if (pointer->iType != TPointerEvent::EButton1Down && pointer->iType != TPointerEvent::EDrag) return;
-        if (index == 7 && pointer->iType == TPointerEvent::EButton1Down) {
+        if (index == kToggle && pointer->iType == TPointerEvent::EButton1Down) {
             ReleaseAll();
             hidden_ = !hidden_;
             Visible();
@@ -178,7 +186,7 @@ class Controls {
         if (hidden_) return;
         TPoint position = bounds_[index].iTl + pointer->iPosition;
         int hit = -1;
-        for (int i = 0; i < 7; ++i) if (bounds_[i].Contains(position)) hit = i;
+        for (int i = 0; i < kButtonCount; ++i) if (bounds_[i].Contains(position)) hit = i;
         if (pointer->iType == TPointerEvent::EButton1Down) windows_[index]->ClaimPointerGrab(number);
         Press(number, hit);
     }
@@ -191,17 +199,24 @@ class Controls {
         gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
         gc_->SetBrushColor(TRgb(0, 0, 0, 0));
         gc_->Clear();
-        const bool pressed = index < 7 && held_[index];
+        const bool pressed = index < kButtonCount && held_[index];
         gc_->SetBrushColor(pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
         const TRect area(TPoint(1, 1), bounds_[index].Size() - TSize(2, 2));
-        gc_->DrawEllipse(area);
+        gc_->DrawRect(area);
         gc_->SetPenStyle(CGraphicsContext::ESolidPen);
         gc_->SetPenColor(TRgb(255, 255, 255, 240));
-        gc_->UseFont(font_);
-        const auto* label = index == 7 ? (hidden_ ? u"+" : u"−") : kBindings[index].label;
-        const TInt baseline = (bounds_[index].Height() + font_->AscentInPixels()) / 2;
-        gc_->DrawText(Text(label), area, baseline, CGraphicsContext::ECenter, 0);
-        gc_->DiscardFont();
+        if (index == kToggle) {
+            const TPoint center(bounds_[index].Width() / 2, bounds_[index].Height() / 2);
+            gc_->SetPenSize(TSize(2, 2));
+            gc_->DrawLine(TPoint(center.iX - 6, center.iY), TPoint(center.iX + 7, center.iY));
+            if (hidden_) gc_->DrawLine(TPoint(center.iX, center.iY - 6), TPoint(center.iX, center.iY + 7));
+            gc_->SetPenSize(TSize(1, 1));
+        } else {
+            gc_->UseFont(font_);
+            const TInt baseline = (area.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
+            gc_->DrawText(Text(kBindings[index].label), area, baseline, CGraphicsContext::ECenter, 0);
+            gc_->DiscardFont();
+        }
         window.EndRedraw();
         gc_->Deactivate();
     }
@@ -292,7 +307,7 @@ class Controls {
         }
         if (active_) {
             Layout();
-            for (int i = 0; i < 7; ++i) {
+            for (int i = 0; i < kButtonCount; ++i) {
                 if (held_[i] && clock_ >= repeat_at_[i]) Send(i, EEventKey, 1);
             }
         }
@@ -301,7 +316,7 @@ class Controls {
 public:
     Controls() { pointers_.fill(-1); }
     int Run(TBool self_test = EFalse) {
-        Ngage::Trace("touch", "controls.start", 1545);
+        Ngage::Trace("touch", "controls.start", 1546);
         TInt result = ws_.Connect();
         Ngage::Trace("touch", "ws.connect", result);
         if (result != KErrNone) return result;
@@ -319,7 +334,7 @@ public:
         group_.SetOrdinalPosition(0, 500);
         if ((result = screen_->GetNearestFontInTwips(font_, TFontSpec(Text(u"Nokia Sans S60"), 240))) != KErrNone) return result;
         Ngage::Trace("touch", "font.ready");
-        for (int i = 0; i < 8; ++i) {
+        for (int i = 0; i < kWindowCount; ++i) {
             windows_[i] = std::make_unique<RWindow>(ws_);
             if ((result = windows_[i]->Construct(group_, i + 2)) != KErrNone) return result;
             windows_[i]->SetRequiredDisplayMode(EColor16MA);
@@ -353,7 +368,7 @@ public:
                 TWsRedrawEvent redraw;
                 ws_.GetRedraw(redraw);
                 const int index = redraw.Handle() - 2;
-                if (index >= 0 && index < 8) Draw(index, redraw.Rect());
+                if (index >= 0 && index < kWindowCount) Draw(index, redraw.Rect());
                 ws_.RedrawReady(&redraws_);
             }
             if (tick_ != KRequestPending) {
@@ -402,7 +417,7 @@ int main() {
     const TInt created = single.CreateGlobal(Text(u"NgageTouchControls"));
     if (created == KErrAlreadyExists) return KErrNone;
     if (created != KErrNone) return created;
-    Ngage::Trace("touch", "service.start", 1545);
+    Ngage::Trace("touch", "service.start", 1546);
     TInt result = KErrNone;
     {
         Controls controls;

@@ -100,7 +100,7 @@ def adapt_client(raw):
     if sum(child.kind == 17 for child in children) != 1:
         raise ValueError('Expected one root product prerequisite')
     info = next(child for child in children if child.kind == 14)
-    members = [Field(4, struct.pack('<iii', 1, 30, 1545)) if f.kind == 4 else f
+    members = [Field(4, struct.pack('<iii', 1, 30, 1546)) if f.kind == 4 else f
                for f in fields(info.payload[:-2])]
     children = [Field(14, sequence(members) + info.payload[-2:]) if child is info else child
                 for child in children]

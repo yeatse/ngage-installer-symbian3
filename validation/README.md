@@ -183,3 +183,30 @@ the helper started with build marker 1545. Its self-test recorded capabilities
 1048574, display fingerprint 713b6259, and successful load/factory/backbuffer
 phases. All 17 installer host checks passed. These checks establish the loader
 correction, not physical 808 gameplay or completion of later display operations.
+
+## 808 playable report, controls and audio tracing — 1.30(1546)
+
+The user confirms 1545 is playable on 808 Belle FP2, with no sound. Added L/R
+softkeys, square translucent buttons and a geometric centered hide/show glyph.
+The diagnostic audio import bridge forwards ROM MMF exports using ARM tail
+branches: it restores r0-r3, the caller's stack and LR before bx to the resolved
+entry. This preserves both hidden aggregate return pointers and the native
+leave path. Code bytes of the two pinned NGI audio images remain identical after
+bytepair expansion; only the import string and compression/header/SIS metadata
+change. Regression checks cover both data units, descriptions, hashes, truncation
+and unchanged instructions. The ordinary build does not instrument audio.
+
+The diagnostic candidate upgraded through X7 ROM SWI in the native-install
+profile; C-drive display, controls and audio bridge images and the redirected
+E-drive NGI audio import were verified. UI/game checks use a separate existing
+Hooked profile with those exact package images overlaid, because that older
+fixture contains prototype component versions which cannot be normally upgraded
+to the current component version sequence. Game cover launch reached the game;
+L/R softkeys, square controls and hide/show were exercised, including R selecting
+language/save-slot menus. Screenshots retain centered minus and plus glyphs.
+The audio bridge logged ROM load 0, PCM16 initialization, configuration, PlayInit,
+PlayData and volume request 7 / maximum 10 / current 5 then 7. This validates
+forwarding and log capture, not physical 808 audio output or audible emulator
+output (the Linux test environment uses an ALSA null output).
+
+Final ordinary and diagnostic builds completed; all 20 host checks passed.

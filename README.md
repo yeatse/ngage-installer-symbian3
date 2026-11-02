@@ -106,3 +106,31 @@ The replacement now declares ALL-TCB (0x000ffffe), matching the original NGI
 backbuffer and the window/bitmap dependencies. Game EXEs and ROM files are
 unchanged. The same isolated diagnostics remain enabled in the diagnostic SIS.
 Physical-device gameplay after this change still needs confirmation.
+
+### Softkeys and audio tracing — 1.30(1546)
+
+Controls now include L/R (left/right softkeys, Device0/Device1), square
+translucent backgrounds, and a centered line-drawn hide/show symbol. Hidden
+controls release all held keys, including the new softkeys.
+
+The 808 can now play after 1545, but reports no sound. This release does not
+claim to fix that remaining issue. The diagnostic SIS additionally writes
+`E:\logs\ngage\audio.log` (C: fallback), recording MMF initialization, sample
+format, playback calls, requested volume, and the ROM's maximum/current volume.
+All volume/configuration requests are recorded; repeated PlayData calls are
+sampled. Initialization calls are asynchronous, so an InitializeL call record
+alone does not establish successful device initialization.
+
+Only the diagnostic variant redirects the pinned NGI audio library's MMF import
+to NgageSoundX.dll. The original executable instructions are preserved; the
+import name, compression/header integrity and SIS file hashes are updated.
+The ARM forwarder preserves arguments, caller stack and return address, then
+tail-calls the original ROM export, including for leaving functions and aggregate
+returns. It uses native UserSvr DLL TLS keyed by its module entry/UID and retains
+a ROM library handle per audio thread until the game process exits. It does not
+replace the ROM audio implementation or change playback settings. The ordinary
+SIS retains the original NGI audio payload without this forwarding component.
+
+For a phone report, enable music/effects in the game and reproduce for about
+15 seconds, then send audio.log and touch.log. If audio.log is absent, include
+posting.log and note that absence. Keep game volume settings in the report.

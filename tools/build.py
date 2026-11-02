@@ -2,12 +2,14 @@
 import argparse
 import hashlib
 import json
+import struct
 from pathlib import Path
 import subprocess
 import sys
 
 from adapt_client import adapt_client, target_component
-from component_identity import patch_image, replace_image
+from audio_diagnostic import instrument_audio
+from component_identity import patch_image, replace_image, header_crc
 from extract_client import extract_client
 from merge_packages import merge_embedded
 from installserver_compat import adapt_server
@@ -86,9 +88,22 @@ def main():
     posting = single_file(touch, posting_image, package_uid=0xe0000963,
                           name='N-Gage native display compatibility',
                           target=r'C:\sys\bin\PostingSurfaceFactory.dll')
+    parent = Package.parse(adapted)
+    components = [posting, touch]
+    if args.diagnostic:
+        parent = instrument_audio(parent)
+        audio_path = compile_native(sdk, 'audio', True) / 'NgageSoundX.dll'
+        audio_image = bytearray(patch_image(audio_path.read_bytes(), 0xe0000964,
+                                uid2=0x1000008d, expected_uid1=0x10000079,
+                                expected_uid2=0x1000008d, capabilities=0xffffe))
+        struct.pack_into('<I', audio_image, 24, 0x000a0000)
+        struct.pack_into('<I', audio_image, 20, header_crc(audio_image, 156))
+        components.append(single_file(touch, bytes(audio_image), package_uid=0xe0000965,
+                                     name='N-Gage diagnostic audio forwarding',
+                                     target=r'C:\sys\bin\NgageSoundX.dll'))
     # Ordinary hacked phones already supply InstallServer. The X7 CFW backend
     # is a separate package variant; replacing a running SWI service is unsafe.
-    result = merge_embedded(Package.parse(adapted), [posting, touch]).encode()
+    result = merge_embedded(parent, components).encode()
     args.output.mkdir(parents=True, exist_ok=True)
     suffix = '-diagnostic' if args.diagnostic else ''
     target = args.output / f'ngage-installer-symbian3{suffix}.sis'
@@ -100,7 +115,9 @@ def main():
                    'posting_image_sha256': hashlib.sha256(posting_image).hexdigest(),
                    'sha256': hashlib.sha256(result).hexdigest(), 'bytes': len(result),
                    'signed': False, 'sdk_version': '0.3.0',
-                   'original_payload_preserved': True,
+                   'original_payload_preserved': not args.diagnostic,
+                   'original_executable_code_preserved': True,
+                   'audio_import_diagnostic': args.diagnostic,
                    'guest_install_service': 'existing phone installation service',
                    'guest_display': 'native window and bitmap APIs',
                    'touch_capabilities': ['AllFiles', 'SwEvent'],
@@ -108,7 +125,7 @@ def main():
                    'diagnostic': args.diagnostic, 'touch_launcher_icon': False})
     (args.output / f'build-report{suffix}.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'Built {target}: {report}')
-    x7 = merge_embedded(Package.parse(adapted), [server, posting, touch]).encode()
+    x7 = merge_embedded(parent, [server, *components]).encode()
     x7_target = args.output / f'ngage-installer-x7-custom-rom{suffix}.sis'
     x7_target.write_bytes(x7)
     x7_report = dict(report, sha256=hashlib.sha256(x7).hexdigest(), bytes=len(x7),
