@@ -237,3 +237,40 @@ events and the volume bridge's 7 -> 7 / MaxVolume 10 path. The 808's audible
 output and softkey behavior still need physical retesting with this version.
 
 Final normal/diagnostic builds completed and all 21 host checks passed.
+
+## RemCon volume and actual virtual-softkey masks — 1.30(1549)
+
+1548's audible output is confirmed on 808. Its L/R failure exposed a wrong
+assumption: the N97 keyboard table entries for Enter/Backspace are not the
+virtual softkey path. In the pinned ngiinput.dll, pointer hit handlers emit
+0x1000/0x2000 to both standard and internal listeners. The augmented standard
+lookup and internal lookup call now produce those masks for Device0/Device1
+(scan 0xa4/0xa5 or key 0xf842/0xf843). Both original searches remain the fallback.
+The pinned source SHA, vtable slot, original call and code relocation are
+validated before changing the image. Compiler-generated Thumb code is executed
+with Unicorn for both ABIs, both key representations, ordinary-key fallback,
+stack and callee-saved-register preservation. Package tests check both copies,
+exact bounded changes and unchanged tail sections. CI builds run these checks
+with the cached SDK.
+
+The Hooked/X7 game fixture reached the main menu using L, opened the exit
+confirmation using R, and cancelled it using R. RemCon module loading and
+registration returned zero in the game process. This environment does not
+supply hardware/bearer RemCon commands, so the physical side buttons need an
+808 test; native session/feature/message/response layouts follow SymbianSource
+oss.FCL.sf.os.devicesrv remotecontrolfw client/inner/src/session.cpp,
+common/remconserver.h, types/src/remconifdetails.cpp and coreapitarget.cpp.
+The adapter uses non-leaving session calls and preserves audio if setup fails.
+The SDK's RemCon address size and core operation/action constants are checked.
+
+A source-guided EKA2L1 branch fix/remcon-session-version (de3d1e163) recognizes v2 session
+roles from TVersion.build (controller 1, target 2), preserving the old handshake.
+Unhandled requests now complete with NotSupported rather than hanging.
+RemCon bearer delivery remains outside the emulator validation performed here.
+All 466 Linux Release emulator tests / 33,469 assertions passed; all 24 host
+checks passed with the SDK, including compiled adapter checks.
+
+The final diagnostic bridge also logged remote.module.pin, remote.connect and
+remote.register with result zero in the game process. Its callback module stays
+loaded while the active receivers exist. Final normal and diagnostic packages
+were rebuilt; physical volume-button delivery remains to be checked on 808.

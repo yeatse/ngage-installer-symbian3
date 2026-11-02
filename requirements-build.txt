@@ -1,1 +1,2 @@
 symbian-platform==0.3.0
+unicorn==2.1.4

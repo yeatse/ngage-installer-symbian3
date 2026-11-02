@@ -282,7 +282,7 @@ CPostingSurface* CPostingSurfaceFactory::NewPostingSurfaceL(TInt display) {
 }
 __attribute__((visibility("default")))
 CPostingSurfaceFactory* NewSurfaceManagerFactoryL() {
-    Ngage::Trace("posting", "factory.entry", 1548, reinterpret_cast<TInt>(&NewSurfaceManagerFactoryL));
+    Ngage::Trace("posting", "factory.entry", 1549, reinterpret_cast<TInt>(&NewSurfaceManagerFactoryL));
     StartControls();
     return new(ELeave) CPostingSurfaceFactory;
 }

@@ -9,6 +9,7 @@ import sys
 
 from adapt_client import adapt_client, target_component
 from audio_compat import adapt_audio
+from input_compat import adapt_input, compile_softkeys
 from component_identity import patch_image, replace_image, header_crc
 from extract_client import extract_client
 from merge_packages import merge_embedded
@@ -90,7 +91,7 @@ def main():
                           target=r'C:\sys\bin\PostingSurfaceFactory.dll')
     parent = Package.parse(adapted)
     components = [posting, touch]
-    parent = adapt_audio(parent)
+    parent = adapt_input(adapt_audio(parent), compile_softkeys(sdk, ROOT))
     audio_path = compile_native(sdk, 'audio', args.diagnostic) / 'NgageSoundX.dll'
     audio_image = bytearray(patch_image(audio_path.read_bytes(), 0xe0000964,
                             uid2=0x1000008d, expected_uid1=0x10000079,
@@ -115,7 +116,10 @@ def main():
                    'sha256': hashlib.sha256(result).hexdigest(), 'bytes': len(result),
                    'signed': False, 'sdk_version': '0.3.0',
                    'original_payload_preserved': False,
-                   'original_executable_code_preserved': True,
+                   'original_executable_code_preserved': False,
+                   'original_instructions_preserved': False,
+                   'input_augmentation_original_lookup_retained': True,
+                   'native_softkey_mapping': True,
                    'audio_import_diagnostic': args.diagnostic,
                    'audio_volume_compatibility': True,
                    'guest_install_service': 'existing phone installation service',

@@ -157,3 +157,29 @@ absent from those maps. Layout is retained: L lower right, R upper right;
 show/hide upper left. The diagnostic touch.log records softkey scan/event types
 and any window-server send failure. Earlier descriptions of generic softkey
 mapping and diagnostic-only audio routing are superseded by this release.
+
+### System volume and NGI virtual softkeys — 1.30(1549)
+
+The 808 confirms audio playback after 1548. System volume now uses a RemCon
+Core API target in the game's audio thread/process, with native press/release/
+click responses and bounded hold repeat. It changes the active DevSound output
+in 0–10 steps, scaled to the actual ROM range. A changed in-game volume request
+resets the hardware override. Stop clears the active object reference; resume
+reapplies a saved hardware level. The callback DLL is pinned while its active
+objects exist. Registration failure leaves normal playback available. The
+normal SIS includes these changes without diagnostic output.
+
+The prior keyboard-only L/R changes did not implement N97 virtual softkeys.
+NGI's pointer path emits logical bits 0x1000/0x2000 to both input interfaces.
+A source-built Thumb adapter augments the pinned ngiinput.dll's 32/64-bit
+lookups for Device0/Device1 scan codes and key codes. All other keys use the
+original lookup functions. The installer updates the E32 code size, offsets,
+header CRC and SIS hashes. This changes a vtable pointer and one internal
+lookup call, and appends the adapter; the old lookup instructions are retained.
+The adapter is executed in an ARM CPU during each build to verify both ABIs,
+fallback, saved registers and stack. No ROM binaries are modified.
+
+For device verification, close Games, cover-install and reboot, then check L/R
+and both hardware volume keys in the game. If needed, audio.log records
+remote.module.pin/connect/register, remote.volume, and
+volume.hardware.applied.max; touch.log records L/R sends.

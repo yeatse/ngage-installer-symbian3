@@ -92,30 +92,30 @@ def redirect_audio_image(raw):
     return result
 
 
-def adapt_audio(package):
+def replace_images(package, source_sha, transform, filename, copies=2):
     units, original, updated, payload_count = data_units(package), None, None, 0
     for ui, unit in enumerate(units):
         files = array_items(fields(unit.payload)[0])
         for fi, file in enumerate(files):
             raw = decompress(fields(file.payload)[0])
-            if hashlib.sha256(raw).hexdigest() != AUDIO_SHA256:
+            if hashlib.sha256(raw).hexdigest() != source_sha:
                 continue
-            original, updated = raw, redirect_audio_image(raw)
+            original, updated = raw, transform(raw)
             files[fi] = Field(32, Field(3, struct.pack('<IQ', 0, len(updated)) + updated).encode())
             payload_count += 1
         units[ui] = Field(31, array(32, files).encode())
-    if payload_count != 2:
-        raise ValueError('Expected both pinned NGI audio payloads')
+    if payload_count != copies:
+        raise ValueError(f'Expected {copies} pinned {filename} payloads')
     description_count = 0
     def rewrite(field):
         nonlocal description_count
         if field.kind == 24:
             meta = fields(field.payload[:-28])
-            if not meta[0].payload.decode('utf-16le').lower().endswith('\\ngiaudio.dll'):
+            if not meta[0].payload.decode('utf-16le').lower().endswith('\\' + filename.lower()):
                 return field
             old_hash = next(f for f in meta if f.kind == 25)
             if fields(old_hash.payload[4:])[0].payload != hashlib.sha1(original).digest():
-                raise ValueError('Unexpected audio file description')
+                raise ValueError(f'Unexpected {filename} file description')
             meta = [Field(25, struct.pack('<I', 1) + Field(37, hashlib.sha1(updated).digest()).encode()) if f.kind == 25 else f for f in meta]
             operation, options, _, _, index = struct.unpack('<IIQQI', field.payload[-28:])
             description_count += 1
@@ -127,7 +127,11 @@ def adapt_audio(package):
         return field
     controller = rewrite(package.controller)
     if description_count != payload_count:
-        raise ValueError('Audio descriptions do not match payloads')
+        raise ValueError(f'{filename} descriptions do not match payloads')
     result = Package(package.uid_header, controller, Field(30, array(31, units).encode()))
     Package.parse(result.encode())
     return result
+
+
+def adapt_audio(package):
+    return replace_images(package, AUDIO_SHA256, redirect_audio_image, 'ngiaudio.dll')
