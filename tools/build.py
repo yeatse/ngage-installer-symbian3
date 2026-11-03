@@ -76,7 +76,7 @@ def main():
     touch_image = patch_image(touch_path.read_bytes(), 0xe0000960, capabilities=6144)
     touch = single_file(template, touch_image, package_uid=0xe0000961,
                         name='N-Gage background touch service',
-                        target=r'C:\sys\bin\ngage_touch.exe')
+                        target=r'C:\sys\bin\ngage_touch.exe', run_after_install=True)
     server_image = adapt_server(args.install_service.read_bytes())
     server = single_file(touch, server_image, package_uid=0xe0000973,
                          name='N-Gage Belle SWI compatibility',
@@ -127,7 +127,7 @@ def main():
                    'portrait_presentation': 'unrotated, full height, centred',
                    'touch_capabilities': ['AllFiles', 'SwEvent'],
                    'posting_capabilities_mask': '000ffffe',
-                   'diagnostic': False, 'touch_launcher_icon': False,
+                   'diagnostic': True, 'touch_launcher_icon': False,
                    'touch_install_autostart': False, 'touch_lifetime': 'owning game process'})
     (args.output / 'build-report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'Built {target}: {report}')

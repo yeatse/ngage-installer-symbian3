@@ -6,6 +6,7 @@
 #include <array>
 #include <memory>
 #include "../common/touch_service.h"
+#include "../common/trace.h"
 
 namespace {
 TPtrC Text(const char16_t* text) {
@@ -44,6 +45,9 @@ class Controls {
     RProcess game_;
     TRequestStatus game_exit_;
     bool watching_game_ = false;
+    std::array<RThread, 24> threads_;
+    std::array<TUint, 24> thread_ids_{};
+    int thread_count_ = 0;
     std::unique_ptr<CWsScreenDevice> screen_;
     std::unique_ptr<CWindowGc> gc_;
     RWindowGroup group_;
@@ -201,8 +205,46 @@ class Controls {
         gc_->Deactivate();
     }
 
+    void ScanThreads() {
+        TFullName pattern(game_.FullName());
+        pattern.Append(_L("::*"));
+        TFindThread find(pattern);
+        TFullName name;
+        while (find.Next(name) == KErrNone && thread_count_ < static_cast<int>(threads_.size())) {
+            RThread thread;
+            if (thread.Open(find) != KErrNone) continue;
+            const TUint id = static_cast<TUint>(thread.Id().Id());
+            if (std::find(thread_ids_.begin(), thread_ids_.begin() + thread_count_, id) != thread_ids_.begin() + thread_count_) {
+                thread.Close(); continue;
+            }
+            Ngage::Trace("touch", "thread.watch", static_cast<TInt>(id), thread_count_, 0, &name);
+            thread_ids_[thread_count_] = id;
+            threads_[thread_count_++] = thread;
+        }
+    }
+    void ReportThread(RThread& thread, TUint id) {
+        const TExitCategoryName category = thread.ExitCategory();
+        Ngage::Trace("touch", "thread.exit.type.reason.id", thread.ExitType(), thread.ExitReason(), static_cast<TInt>(id), &category);
+        if (thread.ExitType() == EExitPending || thread.ExitType() == EExitKill) return;
+        TBuf8<128> context;
+        thread.Context(context);
+        const auto* regs = reinterpret_cast<const TUint32*>(context.Ptr());
+        const TInt words = context.Length() / 4;
+        Ngage::Trace("touch", "context.words", words, static_cast<TInt>(id));
+        for (TInt i = 0; i < words; i += 3) {
+            TBuf<64> line;
+            for (TInt j = i; j < i + 3 && j < words; ++j) { line.Append(_L(" r")); line.AppendNum(j); line.Append('='); line.AppendNum(regs[j], EHex); }
+            Ngage::Trace("touch", "context.hex", i, 0, 0, &line);
+        }
+    }
+    void ReportExit() {
+        const TExitCategoryName category = game_.ExitCategory();
+        Ngage::Trace("touch", "game.exit.type.reason", game_.ExitType(), game_.ExitReason(), thread_count_, &category);
+        for (int i = 0; i < thread_count_; ++i) ReportThread(threads_[i], thread_ids_[i]);
+    }
     void Poll() {
         ++clock_;
+        if (clock_ % 5 == 0) ScanThreads();
         const TInt focus = ws_.GetFocusWindowGroup();
         if (focus != last_focus_ || (!active_ && clock_ % 10 == 0)) {
             const bool is_game = GameHasFocus(focus);
@@ -226,7 +268,16 @@ public:
     Controls() { pointers_.fill(-1); }
     int Run(TProcessId game_id) {
         TInt result = game_.Open(game_id);
+        Ngage::Trace("touch", "game.open", result, static_cast<TInt>(game_id.Id()), 1551);
         if (result != KErrNone) return result;
+        {
+            const TFileName image = game_.FileName();
+            Ngage::Trace("touch", "game.image.sid", static_cast<TInt>(game_.SecureId().iId), 0, 0, &image);
+            TModuleMemoryInfo info;
+            const TInt memory = game_.GetMemoryInfo(info);
+            Ngage::Trace("touch", "game.code.base.size", memory, static_cast<TInt>(info.iCodeBase), static_cast<TInt>(info.iCodeSize));
+        }
+        ScanThreads();
         if (game_.ExitType() != EExitPending) return KErrNone;
         game_.Logon(game_exit_);
         watching_game_ = true;
@@ -262,7 +313,7 @@ public:
         ws_.Flush();
         for (;;) {
             User::WaitForAnyRequest();
-            if (game_exit_ != KRequestPending) return KErrNone;
+            if (game_exit_ != KRequestPending) { ReportExit(); return KErrNone; }
             if (events_ != KRequestPending) {
                 if (events_.Int() != KErrNone) return events_.Int();
                 TWsEvent event;
@@ -293,6 +344,7 @@ public:
             User::WaitForRequest(game_exit_);
         }
         game_.Close();
+        for (int i = 0; i < thread_count_; ++i) threads_[i].Close();
         if (requests_) {
             timer_.Cancel();
             ws_.EventReadyCancel();
@@ -307,12 +359,104 @@ public:
         if (font_) screen_->ReleaseFont(font_);
     }
 };
+
+// Diagnostic watcher: records the exit and register context of every thread in
+// non-ROM processes, including crashes before the display factory starts.
+struct Watched {
+    RProcess process;
+    TUint id = 0;
+    std::array<RThread, 16> threads;
+    std::array<TUint, 16> thread_ids{};
+    std::array<bool, 16> reported{};
+    int thread_count = 0;
+};
+
+void ReportContext(RThread& thread, TUint id) {
+    TBuf8<128> context;
+    thread.Context(context);
+    const auto* regs = reinterpret_cast<const TUint32*>(context.Ptr());
+    const TInt words = context.Length() / 4;
+    Ngage::Trace("watch", "context.words", words, static_cast<TInt>(id));
+    for (TInt i = 0; i < words; i += 3) {
+        TBuf<96> line;
+        for (TInt j = i; j < i + 3 && j < words; ++j) {
+            line.Append(_L(" r")); line.AppendNum(j); line.Append('='); line.AppendNum(regs[j], EHex);
+        }
+        Ngage::Trace("watch", "context", i, 0, 0, &line);
+    }
+}
+
+int WatchAll() {
+    RMutex single;
+    if (single.CreateGlobal(Text(u"NgageCrashWatch")) != KErrNone) return KErrNone;
+    Ngage::Trace("watch", "start", 1551);
+    std::array<Watched, 24> watched;
+    const TUint self = static_cast<TUint>(RProcess().Id().Id());
+    for (;;) {
+        TFindProcess find(_L("*"));
+        TFullName name;
+        while (find.Next(name) == KErrNone) {
+            RProcess process;
+            if (process.Open(find) != KErrNone) continue;
+            const TUint id = static_cast<TUint>(process.Id().Id());
+            const TFileName image = process.FileName();
+            bool known = id == self || process.ExitType() != EExitPending ||
+                         (image.Length() > 0 && (image[0] == 'Z' || image[0] == 'z'));
+            for (auto& item : watched) if (item.id == id) known = true;
+            Watched* slot = nullptr;
+            if (!known) for (auto& item : watched) if (!item.id) { slot = &item; break; }
+            if (!slot) { process.Close(); continue; }
+            slot->process = process; slot->id = id; slot->thread_count = 0;
+            TModuleMemoryInfo info;
+            const TInt memory = process.GetMemoryInfo(info);
+            Ngage::Trace("watch", "process.sid", static_cast<TInt>(process.SecureId().iId), static_cast<TInt>(id), 0, &image);
+            Ngage::Trace("watch", "process.code.base.size", memory, static_cast<TInt>(info.iCodeBase), static_cast<TInt>(info.iCodeSize));
+        }
+        for (auto& item : watched) {
+            if (!item.id) continue;
+            TFullName pattern(item.process.FullName());
+            pattern.Append(_L("::*"));
+            TFindThread threads(pattern);
+            while (threads.Next(name) == KErrNone && item.thread_count < static_cast<int>(item.threads.size())) {
+                RThread thread;
+                if (thread.Open(threads) != KErrNone) continue;
+                const TUint tid = static_cast<TUint>(thread.Id().Id());
+                bool seen = false;
+                for (int i = 0; i < item.thread_count; ++i) if (item.thread_ids[i] == tid) seen = true;
+                if (seen) { thread.Close(); continue; }
+                Ngage::Trace("watch", "thread", static_cast<TInt>(item.id), static_cast<TInt>(tid), 0, &name);
+                item.thread_ids[item.thread_count] = tid;
+                item.reported[item.thread_count] = false;
+                item.threads[item.thread_count++] = thread;
+            }
+            for (int i = 0; i < item.thread_count; ++i) {
+                RThread& thread = item.threads[i];
+                if (item.reported[i] || thread.ExitType() == EExitPending) continue;
+                const TExitCategoryName category = thread.ExitCategory();
+                Ngage::Trace("watch", "thread.exit.type.reason.tid", thread.ExitType(), thread.ExitReason(),
+                             static_cast<TInt>(item.thread_ids[i]), &category);
+                if (thread.ExitType() == EExitPanic || thread.ExitType() == EExitTerminate)
+                    ReportContext(thread, item.thread_ids[i]);
+                item.reported[i] = true;
+            }
+            if (item.process.ExitType() != EExitPending) {
+                const TExitCategoryName category = item.process.ExitCategory();
+                Ngage::Trace("watch", "process.exit.type.reason.pid", item.process.ExitType(), item.process.ExitReason(),
+                             static_cast<TInt>(item.id), &category);
+                for (int i = 0; i < item.thread_count; ++i) item.threads[i].Close();
+                item.process.Close(); item.id = 0; item.thread_count = 0;
+            }
+        }
+        User::After(200000);
+    }
+}
 }
 
 int main() {
     TBuf<32> command;
     if (User::CommandLineLength() > command.MaxLength()) return KErrArgument;
     User::CommandLine(command);
+    if (command.Length() == 0) return WatchAll();
     TLex parser(command);
     TInt64 id = 0;
     if (parser.Val(id, EDecimal) != KErrNone || !parser.Eos() || id <= 0) return KErrArgument;
@@ -326,6 +470,7 @@ int main() {
         Controls controls;
         result = controls.Run(game_id);
     }
+    Ngage::Trace("touch", "service.exit", result);
     single.Close();
     return result;
 }

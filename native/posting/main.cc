@@ -4,6 +4,7 @@
 #include <fbs.h>
 #include <w32std.h>
 #include "../common/touch_service.h"
+#include "../common/trace.h"
 
 
 // CBase has an empty destructor. A local definition avoids a data import for
@@ -47,7 +48,48 @@ void StartControls() {
     TBuf<32> command;
     command.AppendNum(RProcess().Id().Id());
     TInt result = helper.Create(_L("C:\\sys\\bin\\ngage_touch.exe"), command);
+    Ngage::Trace("posting", "controls.create", result);
     if (result == KErrNone) { helper.Resume(); helper.Close(); }
+}
+// Logs export 1 of every library this process has loaded so a crash PC can be
+// mapped to a module offline. Re-loading an already-loaded library shares it.
+void LogModules(const char* stage) {
+    TFullName pattern(RProcess().FullName());
+    pattern.Append(_L("::*"));
+    TFindLibrary find(pattern);
+    TFullName name;
+    TInt count = 0;
+    while (find.Next(name) == KErrNone && count < 120) {
+        ++count;
+        TInt start = name.LocateReverse(':') + 1;
+        TFileName file(name.Mid(start));
+        TInt cut = file.Locate('{'); if (cut >= 0) file.SetLength(cut);
+        cut = file.Locate('['); if (cut >= 0) file.SetLength(cut);
+        if (file.Locate('.') < 0) file.Append(_L(".dll"));
+        RLibrary library;
+        const TInt loaded = library.Load(file);
+        TInt code = 0, data = 0;
+        TInt export1 = 0;
+        if (loaded == KErrNone) {
+            export1 = reinterpret_cast<TInt>(library.Lookup(1));
+            library.GetRamSizes(code, data);
+            library.Close();
+        }
+        Ngage::Trace("modules", stage, loaded, export1, code, &name);
+    }
+    TModuleMemoryInfo info;
+    if (RProcess().GetMemoryInfo(info) == KErrNone)
+        Ngage::Trace("modules", "exe.code.base.size", static_cast<TInt>(info.iCodeBase), static_cast<TInt>(info.iCodeSize), count);
+    const TFileName image = RProcess().FileName();
+    Ngage::Trace("modules", "exe.image", static_cast<TInt>(RProcess().SecureId().iId), 0, 0, &image);
+}
+void StartWatcher() {
+    RMutex existing;
+    if (existing.OpenGlobal(_L("NgageCrashWatch")) == KErrNone) { existing.Close(); return; }
+    RProcess watcher;
+    const TInt result = watcher.Create(_L("C:\\sys\\bin\\ngage_touch.exe"), KNullDesC);
+    Ngage::Trace("posting", "watcher.create", result);
+    if (result == KErrNone) { watcher.Resume(); watcher.Close(); }
 }
 TUint Divide(TUint numerator, TUint denominator) {
     TUint result = 0, remainder = 0;
@@ -88,8 +130,10 @@ class Surface final : public CPostingSurface {
     bool connected_ = false;
     bool fbs_connected_ = false;
     TInt x_map_[640];
+    TUint frames_ = 0;
 public:
     ~Surface() override {
+        Ngage::Trace("posting", "surface.destruct", frames_);
         delete hide_; hide_ = nullptr;
         Destroy();
         if (window_) window_->Close();
@@ -99,6 +143,7 @@ public:
         if (connected_) ws_.Close();
     }
     void ConstructL(TInt screen) {
+        Ngage::Trace("posting", "construct.enter", screen);
         if (screen != 0) User::Leave(KErrNotSupported);
         User::LeaveIfError(ws_.Connect()); connected_ = true;
         screen_ = new(ELeave) CWsScreenDevice(ws_);
@@ -115,6 +160,7 @@ public:
         window_->SetBackgroundColor(TRgb(0, 0, 0));
         window_->Activate();
         if (CActiveScheduler::Current()) hide_ = CPeriodic::NewL(CActive::EPriorityStandard);
+        Ngage::Trace("posting", "construct.done", hide_ != nullptr);
     }
     TBool FormatSupported(TPostingFormat format) override {
         return format == ERgb16bit565Le || format == ERgb24bit888Le || format == ERgb32bit888Le;
@@ -127,6 +173,11 @@ public:
         caps.iSupportedPostingBuffering = ESingleBuffering | EDoubleBuffering;
     }
     void InitializeL(const TPostingSourceParams& source, const TPostingParams& destination) override {
+        Ngage::Trace("posting", "initialize.source", source.iSourceImageSize.iWidth, source.iSourceImageSize.iHeight, source.iPostingFormat);
+        Ngage::Trace("posting", "initialize.buffering", source.iBufferType, source.iPostingBuffering, source.iPostingUsage);
+        Ngage::Trace("posting", "initialize.dest.rect", destination.iDisplayedRect.iTl.iX, destination.iDisplayedRect.iTl.iY, destination.iDisplayedRect.Width());
+        Ngage::Trace("posting", "initialize.dest.size.rot", destination.iDisplayedRect.Height(), destination.iRotation, destination.iMirror);
+        Ngage::Trace("posting", "initialize.dest.scale", destination.iScaleToRect.Width(), destination.iScaleToRect.Height(), destination.iInputCrop.Width());
         if (!FormatSupported(source.iPostingFormat)) User::Leave(KErrNotSupported);
         if (source.iSourceImageSize.iWidth <= 0 || source.iSourceImageSize.iHeight <= 0 ||
             source.iSourceImageSize.iWidth > 640 || source.iSourceImageSize.iHeight > 640)
@@ -144,6 +195,8 @@ public:
         window_->SetExtent(TPoint(0, 0), size);
         window_->SetVisible(ETrue);
         ws_.Finish();
+        Ngage::Trace("posting", "initialize.done", size.iWidth, size.iHeight, reinterpret_cast<TInt>(buffer_.GetBuffer()));
+        LogModules("initialize");
     }
     void Destroy(TRequestStatus& status) override {
         Destroy(); TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
@@ -151,6 +204,7 @@ public:
     // Hiding the window changes the caller's DSA region, which aborts its DSA and
     // re-initialises the surface; defer it so an immediate InitializeL keeps it shown.
     void Destroy() override {
+        Ngage::Trace("posting", "surface.destroy", frames_);
         Release();
         if (!hide_) { Hide(this); return; }
         if (!hide_->IsActive()) hide_->Start(KHideDelay, KHideDelay, TCallBack(Hide, this));
@@ -165,6 +219,10 @@ public:
     }
     TInt CancelBuffer() override { return KErrNone; }
     TInt PostBuffer(TPostingBuff* buffer) override {
+        ++frames_;
+        if (frames_ <= 3 || (frames_ & 255) == 0)
+            Ngage::Trace("posting", "post", frames_, reinterpret_cast<TInt>(buffer), buffer ? reinterpret_cast<TInt>(buffer->GetBuffer()) : 0);
+        if (frames_ == 1) LogModules("first.post");
         TThreadId focused;
         if (ws_.GetWindowGroupClientThreadId(ws_.GetFocusWindowGroup(), focused) != KErrNone)
             return KErrNone;
@@ -244,6 +302,7 @@ public:
         return KErrNone;
     }
     TInt SetPostingParameters(const TPostingParams& params) override {
+        Ngage::Trace("posting", "parameters.rect", params.iDisplayedRect.Width(), params.iDisplayedRect.Height(), params.iRotation);
         if (params.iMirror || params.iRotation != ENoRotation) return KErrNotSupported;
         destination_ = params; return KErrNone;
     }
@@ -262,12 +321,16 @@ public:
 
 CPostingSurfaceFactory::~CPostingSurfaceFactory() = default;
 CPostingSurface* CPostingSurfaceFactory::NewPostingSurfaceL(TInt display) {
+    Ngage::Trace("posting", "surface.new", display);
     auto* surface = new(ELeave) Surface;
     CleanupStack::PushL(surface); surface->ConstructL(display); CleanupStack::Pop(surface);
     return surface;
 }
 __attribute__((visibility("default")))
 CPostingSurfaceFactory* NewSurfaceManagerFactoryL() {
+    Ngage::Trace("posting", "factory.entry", 1551, reinterpret_cast<TInt>(&NewSurfaceManagerFactoryL));
+    LogModules("factory");
+    StartWatcher();
     StartControls();
     return new(ELeave) CPostingSurfaceFactory;
 }
