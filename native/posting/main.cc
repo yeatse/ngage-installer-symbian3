@@ -71,6 +71,8 @@ public:
     void Close() { iChunk.Close(); iBuffer = nullptr; }
 };
 
+const TInt KHideDelay = 250000;
+
 class Surface final : public CPostingSurface {
     RWsSession ws_;
     CWsScreenDevice* screen_ = nullptr;
@@ -78,6 +80,7 @@ class Surface final : public CPostingSurface {
     CWindowGc* gc_ = nullptr;
     RWindowGroup* group_ = nullptr;
     RWindow* window_ = nullptr;
+    CPeriodic* hide_ = nullptr;
     Buffer buffer_;
     TSize source_{0, 0};
     TPostingFormat format_ = EFormatInvalidValue;
@@ -87,6 +90,7 @@ class Surface final : public CPostingSurface {
     TInt x_map_[640];
 public:
     ~Surface() override {
+        delete hide_; hide_ = nullptr;
         Destroy();
         if (window_) window_->Close();
         if (group_) group_->Close();
@@ -110,6 +114,7 @@ public:
         User::LeaveIfError(window_->Construct(*group_, 2));
         window_->SetBackgroundColor(TRgb(0, 0, 0));
         window_->Activate();
+        if (CActiveScheduler::Current()) hide_ = CPeriodic::NewL(CActive::EPriorityStandard);
     }
     TBool FormatSupported(TPostingFormat format) override {
         return format == ERgb16bit565Le || format == ERgb24bit888Le || format == ERgb32bit888Le;
@@ -128,7 +133,8 @@ public:
             User::Leave(KErrArgument);
         if (source.iBufferType != EChunkBuffer && source.iBufferType != EStandardBuffer)
             User::Leave(KErrNotSupported);
-        Destroy(); source_ = source.iSourceImageSize; format_ = source.iPostingFormat;
+        if (hide_) hide_->Cancel();
+        Release(); source_ = source.iSourceImageSize; format_ = source.iPostingFormat;
         const TInt bytes = format_ == ERgb16bit565Le ? 2 : format_ == ERgb24bit888Le ? 3 : 4;
         buffer_.CreateL(source_, bytes);
         User::LeaveIfError(SetPostingParameters(destination));
@@ -142,8 +148,12 @@ public:
     void Destroy(TRequestStatus& status) override {
         Destroy(); TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
     }
+    // Hiding the window changes the caller's DSA region, which aborts its DSA and
+    // re-initialises the surface; defer it so an immediate InitializeL keeps it shown.
     void Destroy() override {
-        buffer_.Close(); bitmap_.Reset(); if (window_) window_->SetVisible(EFalse);
+        Release();
+        if (!hide_) { Hide(this); return; }
+        if (!hide_->IsActive()) hide_->Start(KHideDelay, KHideDelay, TCallBack(Hide, this));
     }
     TInt WaitForNextBuffer(TRequestStatus& status) override {
         status = KRequestPending;
@@ -237,6 +247,13 @@ public:
         if (params.iMirror || params.iRotation != ENoRotation) return KErrNotSupported;
         destination_ = params; return KErrNone;
     }
+    static TInt Hide(TAny* self) {
+        auto* surface = static_cast<Surface*>(self);
+        if (surface->hide_) surface->hide_->Cancel();
+        if (surface->window_) { surface->window_->SetVisible(EFalse); surface->ws_.Flush(); }
+        return KErrNone;
+    }
+    void Release() { buffer_.Close(); bitmap_.Reset(); }
     TInt SetClipRegion(const TRegion&) override {
         // WS clips this surface window; the caller's DSA region excludes it.
         return KErrNotSupported;

@@ -10,6 +10,7 @@ import sys
 from adapt_client import adapt_client, target_component
 from audio_compat import adapt_audio
 from input_compat import adapt_input, compile_softkeys
+from orientation_compat import adapt_orientation
 from component_identity import patch_image, replace_image, header_crc
 from extract_client import extract_client
 from merge_packages import merge_embedded
@@ -91,6 +92,7 @@ def main():
     parent = Package.parse(adapted)
     components = [posting, touch]
     parent = adapt_input(adapt_audio(adapt_licence(parent)), compile_softkeys(sdk, ROOT))
+    parent = adapt_orientation(parent)
     audio_path = compile_native(sdk, 'audio') / 'NgageSoundX.dll'
     audio_image = bytearray(patch_image(audio_path.read_bytes(), 0xe0000964,
                             uid2=0x1000008d, expected_uid1=0x10000079,
@@ -122,6 +124,7 @@ def main():
                    'missing_rights_licence_status': 'full',
                    'guest_install_service': 'existing phone installation service',
                    'guest_display': 'native window and bitmap APIs',
+                   'portrait_presentation': 'unrotated, full height, centred',
                    'touch_capabilities': ['AllFiles', 'SwEvent'],
                    'posting_capabilities_mask': '000ffffe',
                    'diagnostic': False, 'touch_launcher_icon': False,

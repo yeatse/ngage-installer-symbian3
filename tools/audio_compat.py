@@ -92,7 +92,9 @@ def redirect_audio_image(raw):
     return result
 
 
-def replace_images(package, source_sha, transform, filename, copies=2, descriptions=None):
+def replace_images(package, source_sha, transform, filename, copies=2, descriptions=None,
+                   variants=False):
+    """With variants, same-named files with other contents are left untouched."""
     units, original, updated, payload_count = data_units(package), None, None, 0
     for ui, unit in enumerate(units):
         files = array_items(fields(unit.payload)[0])
@@ -115,6 +117,8 @@ def replace_images(package, source_sha, transform, filename, copies=2, descripti
                 return field
             old_hash = next(f for f in meta if f.kind == 25)
             if fields(old_hash.payload[4:])[0].payload != hashlib.sha1(original).digest():
+                if variants:
+                    return field
                 raise ValueError(f'Unexpected {filename} file description')
             meta = [Field(25, struct.pack('<I', 1) + Field(37, hashlib.sha1(updated).digest()).encode()) if f.kind == 25 else f for f in meta]
             operation, options, _, _, index = struct.unpack('<IIQQI', field.payload[-28:])

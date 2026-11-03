@@ -36,6 +36,18 @@ to ALL-TCB to match the window/bitmap dependencies, resolving the loader's -46
 permission failure that preceded the crash on the physical phone. The phone
 components use existing ROM interfaces.
 
+Portrait games keep the phone in landscape. Only the picture is portrait,
+unrotated, scaled to the full screen height and centred; for example, 240×320
+is shown at 270×360 from x=185 on a 640×360 screen. The installer rewrites the
+N97 display configuration selected on Symbian^3. That configuration enables the
+portrait option and maps both orientations to landscape window-server modes, and
+it scales portrait backbuffers to the screen height. Two pinned NGI instructions
+are changed. `ngigameorientation.dll` keeps the current landscape screen mode
+when no portrait mode exists, and `ngibackbuffer.dll` keeps portrait buffer
+dimensions instead of swapping them. The compatibility DLL hides its window only
+after a short delay. Hiding at once would change the game's DSA region and
+restart the surface in a loop.
+
 Translucent square controls provide a five-way pad on the left, R/A/B/L from top
 to bottom on the right, and hide/show at the upper left. Input handling tracks
 holds, repeats and multiple pointers, and releases keys when controls are hidden
@@ -89,9 +101,10 @@ on Linux and produce unsigned SIS packages. GitHub Actions builds and uploads
 the artifacts. Large installer, SDK and X7 service inputs are cached by SHA-256
 and verified after restoration. Regular builds do not download ROMs or games.
 
-The 27 project checks cover package structure, original-input protection,
+The 31 project checks cover package structure, original-input protection,
 import redirection, component identities, volume scaling, the licence-query
-patch, and Thumb softkey execution and ABI behavior. Runtime validation covers the N97 baseline,
+patch, portrait display settings and instructions, and Thumb softkey execution
+and ABI behavior. Runtime validation covers the N97 baseline,
 installation and launch inside Games on X7, game menus and gameplay screens,
 and user testing on the physical 808.
 
