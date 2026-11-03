@@ -1,74 +1,48 @@
-# N-Gage installer for Symbian^3
+# 在 Symbian^3 手机上玩 N-Gage 2.0
 
-Unsigned adaptation of Nokia N97's N-Gage 2.0 1.30(1541) installer for already
-hacked Symbian^3/Belle phones. Current package: **1.30(1550)**.
-Hooked: Creatures of the Deep has passed the N97/X7 EKA2L1 flow and user testing
-on **Nokia 808 Belle FP2 with Install Server and Open4All**. Other games and
-phone models have not all been verified.
+把 Nokia N97 的 N-Gage 2.0 适配到已破解的 Symbian^3 / Belle 手机，
+让没有实体键盘的机型也能用触屏玩游戏。当前版本：**1.30(1550)**。
 
-Install `ngage-installer-symbian3.sis`, put legally obtained `.n-gage` files in
-`E:\n-gage`, open **Games**, install the game there, and launch it from Games.
-For an upgrade, exit Games, cover-install, then reboot to replace resident DLLs
-and the background control service. No signing is required on the hacked phone.
+已在 **Nokia 808 Belle FP2** 上实测 Hooked: Creatures of the Deep，
+游戏画面、声音、虚拟按键和手机音量键均可正常使用。其他游戏和机型尚未逐一验证。
 
-The overlay provides translucent square five-way controls on the left and
-R/A/B/L vertically on the right. Hide/show is at the upper left. L/R are native
-NGI logical softkeys; the phone's hardware volume buttons adjust game audio.
-Only the original Games icon is installed.
+## 做了什么
 
-## What the adaptation changes
+- 保留原来的 **Games**：在里面安装游戏、点击封面启动。
+- 加入可隐藏的半透明虚拟键：左侧五向键，右侧 R / A / B / L，左上角展开或收起。
+- 适配游戏显示和声音，支持用手机音量键调整音量。
+- 不增加额外的 Games(Touch) 图标，新版不再生成诊断日志。
 
-- Platform selection and SIS component declarations recognize Symbian^3/Belle
-  and select the original N97 touch profile.
-- A source-built Display Posting API DLL uses native window/bitmap services for
-  presentation, scaling and RGB conversion. Its ALL-TCB capabilities match its
-  dependencies and avoid the loader permission failure seen on 808.
-- A background service discovers installed games and forwards touch controls to
-  the foreground game, including held keys and key release on hide/focus loss.
-- A source-built Thumb adapter extends the pinned `ngiinput.dll`'s 32/64-bit
-  lookup paths with the actual NGI virtual softkey masks, retaining other keys.
-- A native audio bridge forwards to ROM DevSound, scales NGI volume 0–10 to the
-  device's actual range, and receives system volume press/release/click commands
-  through RemCon. Callback code stays loaded while its receivers exist.
-- E32 identities, capabilities, checksums and SIS hashes are updated consistently.
-  Existing game binaries and ROM files are not modified.
+适配以 N97 版程序为基础，为新系统补齐显示、声音和触控操作的兼容处理，
+不需要刷入新 ROM，也不需要修改游戏文件。
 
-1550 removes crash child-process probes, process-exit monitoring, filesystem
-logging, diagnostic counters and the diagnostic build variant. It retains the
-compatibility behavior validated in 1549. Old `E:\logs\ngage` / `C:\logs\ngage`
-files are not deleted automatically and can be removed manually.
+## 下载与使用
 
-`ngage-installer-x7-custom-rom.sis` additionally replaces
-`C:\sys\bin\YnstallServer.exe`. It is reserved for the supplied X7 custom ROM,
-whose `uiss.dll` requests that service. **Use the ordinary package on an 808.**
-The pinned Belle service has a scoped adaptation for filename-less
-MSisDataProvider streams. The ordinary package uses the phone's existing
-installation service.
+手机需要已经破解，并开启 **Install Server** 和 **Open4All**。
 
-## Build
+1. 打开 [安装包下载页面](https://github.com/yeatse/ngage-installer-symbian3/actions/workflows/build.yml)，选择最新成功的构建，在底部 **Artifacts** 下载 `ngage-installer-symbian3-unsigned` 并解压。下载需要登录 GitHub。
+2. 将 **`ngage-installer-symbian3.sis`** 传到手机安装，无需签名。普通手机请使用这个文件。
+3. 把 `.n-gage` 游戏文件放入手机的 **`E:\n-gage`** 文件夹。
+4. 打开 **Games**，在其中安装游戏，再点击游戏封面启动。
 
-GitHub Actions builds the native ARM components from source using
-[symbian-platform](https://github.com/hpnkv/symbian-platform) 0.3.0 and uploads
-`ngage-installer-symbian3-unsigned`. Large inputs are cached individually by
-SHA-256 and checked after restoration. Builds do not download ROMs or games.
+升级时，请先退出 Games，覆盖安装后重启手机。安装包不包含游戏，游戏文件需自行准备。
 
-For a local Linux build, extract the pinned SDK from `validation/sdk.json`, then:
+## 效果截图
 
-```sh
-python3 -m venv .venv
-.venv/bin/pip install -r requirements-build.txt
-.venv/bin/python tools/fetch_inputs.py downloads --only n97-ngage.sisx
-.venv/bin/python tools/fetch_inputs.py downloads --manifest validation/hacked-x7.json \
-  --only ynstallserver-belle-fixture.exe
-.venv/bin/python tools/build.py --sdk /absolute/path/to/sdk --installer downloads/n97-ngage.sisx
-```
+以下截图来自 X7 ROM 的 EKA2L1 模拟器验证；上面的 808 实测结果由用户反馈确认。
 
-Outputs are the ordinary SIS and `build-report.json`, plus the separate X7
-custom-ROM SIS and report. Each build executes the softkey adapter on an ARM
-CPU to verify both ABIs, fallback behavior, saved registers and stack.
+**在 Games 内完成游戏安装**
 
-See [validation](validation/README.md) for fixtures and acceptance history and
-[适配总结](docs/adaptation-summary.zh-CN.md) for the implementation summary.
-Diagnostic releases remain available through Git history.
-Upstream Nokia/game material is fetched separately and is not covered by this
-repository's MIT license. No ROM, game or game license is included in the artifact.
+![Games 内提示游戏安装完成](validation/screenshots/x7-install-complete.png)
+
+**游戏画面与虚拟按键：R 在右上，L 在右下，左上角可收起按键**
+
+![Hooked 游戏画面及五向键、R、A、B、L 和收起按钮](docs/images/game-controls.png)
+
+## 更多资料
+
+- [适配原理与改动总结](docs/adaptation-summary.zh-CN.md)
+- [从源码构建安装包](docs/build.md)
+- [验证过程、问题排查与历史记录](validation/README.md)
+
+Nokia 程序和游戏画面的版权归原权利人所有，项目的 MIT 许可不涵盖这些内容。
