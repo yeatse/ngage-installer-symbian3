@@ -282,7 +282,7 @@ keys and NGI L/R. Release 1550 removes child crash probes, diagnostic process
 monitoring, trace output/counters and the diagnostic build option. Native
 compatibility behavior is retained. The component version advances to 1.0.8
 and the root installer to 1.30(1550) for upgrades from the diagnostic package.
-Old phone logs are left untouched. See docs/adaptation-summary.zh-CN.md.
+Old phone logs are left untouched. See docs/adaptation-summary.md.
 
 The 1550 local source build and all 24 SDK-backed host checks passed. The final
 SIS round-trips through the parser, and decompressed payloads contain none of the

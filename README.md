@@ -45,8 +45,8 @@ above were confirmed through user testing on a physical phone.
 
 ## Further reading
 
-- [How the adaptation works and what changed (Chinese)](docs/adaptation-summary.zh-CN.md)
-- [Building from source (Chinese)](docs/build.md)
+- [How the adaptation works and what changed](docs/adaptation-summary.md)
+- [Building from source](docs/build.md)
 - [Validation, troubleshooting and development history](validation/README.md)
 
 Nokia software and game imagery belong to their respective copyright holders
