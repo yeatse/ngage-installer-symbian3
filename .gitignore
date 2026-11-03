@@ -2,6 +2,7 @@
 /downloads/
 /runtime/
 /artifacts/
+/sdk/
 __pycache__/
 
 sdk-location.json
