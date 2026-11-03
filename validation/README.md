@@ -274,3 +274,19 @@ The final diagnostic bridge also logged remote.module.pin, remote.connect and
 remote.register with result zero in the game process. Its callback module stays
 loaded while the active receivers exist. Final normal and diagnostic packages
 were rebuilt; physical volume-button delivery remains to be checked on 808.
+
+## Verified release and diagnostic cleanup — 1.30(1550)
+
+The user confirmed 1549 passes on Nokia 808 Belle FP2, including system volume
+keys and NGI L/R. Release 1550 removes child crash probes, diagnostic process
+monitoring, trace output/counters and the diagnostic build option. Native
+compatibility behavior is retained. The component version advances to 1.0.8
+and the root installer to 1.30(1550) for upgrades from the diagnostic package.
+Old phone logs are left untouched. See docs/adaptation-summary.zh-CN.md.
+
+The 1550 local source build and all 24 SDK-backed host checks passed. The final
+SIS round-trips through the parser, and decompressed payloads contain none of the
+removed probe command lines, self-test command, log-directory or trace markers.
+Ordinary SIS SHA-256:
+`669006d9d47628c3aa61add2ed3e4f48989d88efd08d4d77752676a227b6e315`.
+This cleanup has not received a separate physical-phone retest yet.

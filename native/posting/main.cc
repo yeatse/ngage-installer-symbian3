@@ -3,7 +3,6 @@
 #include "Posting_Surface_Factory.h"
 #include <fbs.h>
 #include <w32std.h>
-#include "../common/trace.h"
 
 
 // CBase has an empty destructor. A local definition avoids a data import for
@@ -40,15 +39,11 @@ __attribute__((visibility("default")))
 TUint CPostingSurface::TPostingBufferChunk::GetOffsetInChunk() { return iOffsetInChunk; }
 
 namespace {
-TInt Step(const char* event, TInt result) {
-    Ngage::Trace("posting", event, result); return result;
-}
 void StartControls() {
     RMutex existing;
     if (existing.OpenGlobal(_L("NgageTouchControls")) == KErrNone) { existing.Close(); return; }
     RProcess helper;
     TInt result = helper.Create(_L("C:\\sys\\bin\\ngage_touch.exe"), KNullDesC);
-    Ngage::Trace("posting", "controls.create", result);
     if (result == KErrNone) { helper.Resume(); helper.Close(); }
 }
 TUint Divide(TUint numerator, TUint denominator) {
@@ -87,10 +82,8 @@ class Surface final : public CPostingSurface {
     bool connected_ = false;
     bool fbs_connected_ = false;
     TInt x_map_[640];
-    TUint frames_ = 0;
 public:
     ~Surface() override {
-        Ngage::Trace("posting", "surface.destruct");
         Destroy();
         if (window_) window_->Close();
         if (group_) group_->Close();
@@ -99,23 +92,21 @@ public:
         if (connected_) ws_.Close();
     }
     void ConstructL(TInt screen) {
-        Ngage::Trace("posting", "construct.enter", screen);
         if (screen != 0) User::Leave(KErrNotSupported);
-        User::LeaveIfError(Step("ws.connect", ws_.Connect())); connected_ = true;
+        User::LeaveIfError(ws_.Connect()); connected_ = true;
         screen_ = new(ELeave) CWsScreenDevice(ws_);
-        User::LeaveIfError(Step("screen.construct", screen_->Construct(screen)));
+        User::LeaveIfError(screen_->Construct(screen));
         screen_->SetAppScreenMode(screen_->CurrentScreenMode());
-        User::LeaveIfError(Step("fbs.connect", RFbsSession::Connect())); fbs_connected_ = true;
-        User::LeaveIfError(Step("gc.create", screen_->CreateContext(gc_)));
+        User::LeaveIfError(RFbsSession::Connect()); fbs_connected_ = true;
+        User::LeaveIfError(screen_->CreateContext(gc_));
         group_ = new(ELeave) RWindowGroup(ws_);
-        User::LeaveIfError(Step("group.construct", group_->Construct(1, EFalse)));
+        User::LeaveIfError(group_->Construct(1, EFalse));
         group_->EnableReceiptOfFocus(EFalse);
         group_->SetOrdinalPosition(0, 0);
         window_ = new(ELeave) RWindow(ws_);
-        User::LeaveIfError(Step("window.construct", window_->Construct(*group_, 2)));
+        User::LeaveIfError(window_->Construct(*group_, 2));
         window_->SetBackgroundColor(TRgb(0, 0, 0));
         window_->Activate();
-        Ngage::Trace("posting", "construct.done");
     }
     TBool FormatSupported(TPostingFormat format) override {
         return format == ERgb16bit565Le || format == ERgb24bit888Le || format == ERgb32bit888Le;
@@ -128,8 +119,6 @@ public:
         caps.iSupportedPostingBuffering = ESingleBuffering | EDoubleBuffering;
     }
     void InitializeL(const TPostingSourceParams& source, const TPostingParams& destination) override {
-        Ngage::Trace("posting", "initialize.source", source.iSourceImageSize.iWidth, source.iSourceImageSize.iHeight, source.iPostingFormat);
-        Ngage::Trace("posting", "initialize.buffering", source.iBufferType, source.iPostingBuffering);
         if (!FormatSupported(source.iPostingFormat)) User::Leave(KErrNotSupported);
         if (source.iSourceImageSize.iWidth <= 0 || source.iSourceImageSize.iHeight <= 0 ||
             source.iSourceImageSize.iWidth > 640 || source.iSourceImageSize.iHeight > 640)
@@ -138,41 +127,31 @@ public:
             User::Leave(KErrNotSupported);
         Destroy(); source_ = source.iSourceImageSize; format_ = source.iPostingFormat;
         const TInt bytes = format_ == ERgb16bit565Le ? 2 : format_ == ERgb24bit888Le ? 3 : 4;
-        Ngage::Trace("posting", "buffer.create.begin", bytes);
         buffer_.CreateL(source_, bytes);
-        Ngage::Trace("posting", "buffer.create.done", reinterpret_cast<TInt>(buffer_.GetBuffer()), buffer_.GetStride());
         User::LeaveIfError(SetPostingParameters(destination));
         screen_->SetAppScreenMode(screen_->CurrentScreenMode());
         const TSize size = screen_->SizeInPixels();
-        Ngage::Trace("posting", "bitmap.create.begin", size.iWidth, size.iHeight);
-        User::LeaveIfError(Step("bitmap.create", bitmap_.Create(size, EColor16MU)));
+        User::LeaveIfError(bitmap_.Create(size, EColor16MU));
         window_->SetExtent(TPoint(0, 0), size);
         window_->SetVisible(ETrue);
         ws_.Finish();
-        Ngage::Trace("posting", "initialize.done");
     }
     void Destroy(TRequestStatus& status) override {
         Destroy(); TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
     }
     void Destroy() override {
-        Ngage::Trace("posting", "surface.destroy");
         buffer_.Close(); bitmap_.Reset(); if (window_) window_->SetVisible(EFalse);
     }
     TInt WaitForNextBuffer(TRequestStatus& status) override {
-        if (frames_ < 3) Ngage::Trace("posting", "buffer.wait", frames_);
         status = KRequestPending;
         TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
         return KErrNone;
     }
     TPostingBuff* NextBuffer() override {
-        if (frames_ < 3) Ngage::Trace("posting", "buffer.next", reinterpret_cast<TInt>(&buffer_));
         return &buffer_;
     }
     TInt CancelBuffer() override { return KErrNone; }
     TInt PostBuffer(TPostingBuff* buffer) override {
-        ++frames_;
-        const bool trace = frames_ <= 3 || frames_ % 300 == 0;
-        if (trace) Ngage::Trace("posting", "post.enter", frames_, reinterpret_cast<TInt>(buffer));
         TThreadId focused;
         if (ws_.GetWindowGroupClientThreadId(ws_.GetFocusWindowGroup(), focused) != KErrNone)
             return KErrNone;
@@ -183,16 +162,11 @@ public:
         if (!foreground) return KErrNone;
         if (!buffer || buffer->GetSize() != source_ || !buffer->GetBuffer()) return KErrArgument;
 
-        if (trace) Ngage::Trace("posting", "bitmap.address.begin");
         TAcceleratedBitmapInfo bitmap;
         bitmap.iAddress = reinterpret_cast<TUint8*>(bitmap_.DataAddress());
         bitmap.iSize = bitmap_.SizeInPixels();
         bitmap.iLinePitch = bitmap_.DataStride();
         bitmap.iDisplayMode = bitmap_.DisplayMode();
-        if (trace) {
-            Ngage::Trace("posting", "bitmap.address", reinterpret_cast<TInt>(bitmap.iAddress), bitmap.iLinePitch, bitmap.iDisplayMode);
-            Ngage::Trace("posting", "bitmap.size", bitmap.iSize.iWidth, bitmap.iSize.iHeight);
-        }
         if (!bitmap.iAddress || bitmap.iSize.iWidth <= 0 || bitmap.iSize.iHeight <= 0) return KErrNotReady;
         const TInt out_bytes = bitmap.iDisplayMode == EColor64K ? 2 : bitmap.iDisplayMode == EColor16M ? 3 :
             (bitmap.iDisplayMode == EColor16MU || bitmap.iDisplayMode == EColor16MA || bitmap.iDisplayMode == EColor16MAP) ? 4 : 0;
@@ -217,9 +191,7 @@ public:
         for (TInt x = visible.iTl.iX; x < visible.iBr.iX; ++x)
             x_map_[x] = crop.iTl.iX + Divide((x - output.iTl.iX) * crop.Width(), output.Width());
         const TRect area = visible;
-        if (trace) Ngage::Trace("posting", "bitmap.lock.begin");
         bitmap_.BeginDataAccess();
-        if (trace) Ngage::Trace("posting", "pixels.begin", area.Width(), area.Height(), in_stride);
         for (TInt y = area.iTl.iY; y < area.iBr.iY; ++y) {
             const TInt sy = crop.iTl.iY + Divide((y - output.iTl.iY) * crop.Height(), output.Height());
             auto* row = bitmap.iAddress + y * bitmap.iLinePitch;
@@ -247,23 +219,18 @@ public:
                 }
             }
         }
-        if (trace) Ngage::Trace("posting", "pixels.done");
         bitmap_.EndDataAccess();
         group_->SetOrdinalPosition(0, 0);
         gc_->Activate(*window_);
         window_->Invalidate();
         window_->BeginRedraw();
-        if (trace) Ngage::Trace("posting", "bitblt.begin");
         gc_->BitBlt(TPoint(0, 0), &bitmap_);
         window_->EndRedraw();
         gc_->Deactivate();
         ws_.Finish();
-        if (trace) Ngage::Trace("posting", "post.done", frames_);
         return KErrNone;
     }
     TInt SetPostingParameters(const TPostingParams& params) override {
-        Ngage::Trace("posting", "parameters.rect", params.iDisplayedRect.Width(), params.iDisplayedRect.Height());
-        Ngage::Trace("posting", "parameters.origin", params.iDisplayedRect.iTl.iX, params.iDisplayedRect.iTl.iY);
         if (params.iMirror || params.iRotation != ENoRotation) return KErrNotSupported;
         destination_ = params; return KErrNone;
     }
@@ -275,14 +242,12 @@ public:
 
 CPostingSurfaceFactory::~CPostingSurfaceFactory() = default;
 CPostingSurface* CPostingSurfaceFactory::NewPostingSurfaceL(TInt display) {
-    Ngage::Trace("posting", "surface.new.enter", display);
     auto* surface = new(ELeave) Surface;
     CleanupStack::PushL(surface); surface->ConstructL(display); CleanupStack::Pop(surface);
     return surface;
 }
 __attribute__((visibility("default")))
 CPostingSurfaceFactory* NewSurfaceManagerFactoryL() {
-    Ngage::Trace("posting", "factory.entry", 1549, reinterpret_cast<TInt>(&NewSurfaceManagerFactoryL));
     StartControls();
     return new(ELeave) CPostingSurfaceFactory;
 }

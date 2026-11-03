@@ -14,6 +14,3 @@ target_include_directories(NgageSoundX SYSTEM PRIVATE
 target_compile_options(NgageSoundX PRIVATE -fshort-wchar -fno-exceptions -fno-rtti
   "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${SYMBIAN_SDK_PREFIX}/cmake/native_cpp_compat.h>")
 target_link_libraries(NgageSoundX PRIVATE Symbian::EUser Symbian::FileServer)
-
-option(NGAGE_DIAGNOSTIC "Flush diagnostic records to the phone filesystem" OFF)
-target_compile_definitions(NgageSoundX PRIVATE NGAGE_DIAGNOSTIC=$<BOOL:${NGAGE_DIAGNOSTIC}>)

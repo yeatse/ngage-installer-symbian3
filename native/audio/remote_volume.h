@@ -2,7 +2,6 @@
 #include <e32base.h>
 #include <remconaddress.h>
 #include <remconcoreapi.h>
-#include "../common/trace.h"
 
 namespace Ngage {
 static_assert(KRemConCoreApiUid == 0x10205e60 && ERemConCoreApiVolumeUp == 0x41 && ERemConCoreApiVolumeDown == 0x42);
@@ -68,13 +67,11 @@ class VolumeReceiver final : public CActive {
     void Receive() { data_.Zero(); session_.Receive(message_, data_, iStatus); SetActive(); }
     void RunL() override {
         const TInt error = iStatus.Int();
-        Trace("audio", "remote.receive", error, message_().operation, data_.Length());
         if (error != KErrNone) { repeat_.Stop(); return; }
         TInt result = KErrNotSupported;
         const TUint operation = message_().operation;
         if (message_().uid == 0x10205e60 && (operation == 0x41 || operation == 0x42) && data_.Length() >= 1) {
             const TInt action = data_[0], direction = operation == 0x41 ? 1 : -1;
-            Trace("audio", "remote.volume", direction, action);
             result = KErrNone;
             if (action == 0) repeat_.Start(direction);
             else if (action == 1) repeat_.Stop();
@@ -84,8 +81,7 @@ class VolumeReceiver final : public CActive {
         const TUint info[] = { operation, 0 };
         const TPtrC8 operation_info(reinterpret_cast<const TUint8*>(info), sizeof(info));
         const TPckgC<TInt> response(result);
-        const TInt ack = session_.Call(20, TIpcArgs(message_().uid, &operation_info, 0, &response));
-        Trace("audio", "remote.response", ack);
+        session_.Call(20, TIpcArgs(message_().uid, &operation_info, 0, &response));
         Receive();
     }
     void DoCancel() override { session_.Call(14); }
@@ -94,24 +90,24 @@ class VolumeReceiver final : public CActive {
         CActiveScheduler::Add(this);
     }
     TInt Open() {
-        TInt error = session_.Open(); Trace("audio", "remote.connect", error);
+        TInt error = session_.Open();
         if (error != KErrNone) return error;
         TBuf8<25> registration;
         auto word = [&](TUint value) { registration.Append(TPtrC8(reinterpret_cast<const TUint8*>(&value), 4)); };
         word(1); word(0x10205e60); word(2); registration.Append(TChar(0)); word(8); word(0x41); word(0x42);
-        error = session_.Call(19, TIpcArgs(&registration)); Trace("audio", "remote.register", error);
+        error = session_.Call(19, TIpcArgs(&registration));
         if (error == KErrNone) error = repeat_.Open();
         if (error == KErrNone) Receive();
         return error;
     }
 public:
     static VolumeReceiver* New(void (*change)(TAny*, TInt), TAny* context) {
-        if (!CActiveScheduler::Current()) { Trace("audio", "remote.scheduler", KErrNotReady); return nullptr; }
+        if (!CActiveScheduler::Current()) return nullptr;
         void* memory = User::AllocZ(sizeof(VolumeReceiver));
         if (!memory) return nullptr;
         auto* receiver = new(memory) VolumeReceiver(change, context);
         const TInt error = receiver->Open();
-        if (error != KErrNone) { Trace("audio", "remote.disabled", error); delete receiver; return nullptr; }
+        if (error != KErrNone) { delete receiver; return nullptr; }
         return receiver;
     }
     ~VolumeReceiver() override { Cancel(); repeat_.Stop(); session_.Close(); }

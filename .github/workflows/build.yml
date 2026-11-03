@@ -35,7 +35,6 @@ jobs:
       - name: Build and verify installer
         run: |
           python tools/build.py --sdk "$RUNNER_TEMP/symbian-sdk" --installer downloads/n97-ngage.sisx
-          python tools/build.py --sdk "$RUNNER_TEMP/symbian-sdk" --installer downloads/n97-ngage.sisx --diagnostic
       - name: Check compiled adapters and package tooling
         env:
           NGAGE_SDK: ${{ runner.temp }}/symbian-sdk

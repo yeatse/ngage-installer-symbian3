@@ -1,4 +1,4 @@
-"""Check diagnostic import routing without changing NGI executable instructions."""
+"""Check audio compatibility import routing without changing NGI executable instructions."""
 import hashlib
 import os
 from pathlib import Path
@@ -17,7 +17,7 @@ from merge_packages import data_units
 from sis import Package, fields, array_items, decompress
 
 
-class AudioDiagnosticTests(unittest.TestCase):
+class AudioCompatibilityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         path = Path(os.environ.get('NGAGE_VALIDATION_INPUTS', ROOT / 'downloads')) / 'n97-ngage.sisx'

@@ -2,7 +2,6 @@
 #include <e32std.h>
 #include <e32svr.h>
 #include <new>
-#include "../common/trace.h"
 #include "volume.h"
 #include "remote_volume.h"
 
@@ -16,7 +15,6 @@ namespace {
 struct State {
     RLibrary library;
     RLibrary callback_pin;
-    TUint calls[45]{};
     TAny* sound = nullptr;
     TInt legacy = 0;
     TInt hardware_level = -1;
@@ -33,9 +31,8 @@ void ApplyHardwareVolume(State& state) {
             const TInt limit = maximum(state.sound);
             const TInt applied = Ngage::ScaleLegacyVolume(state.hardware_level, limit);
             setter(state.sound, applied);
-            Ngage::Trace("audio", "volume.hardware.applied.max", state.hardware_level, applied, limit);
         }
-    } else Ngage::Trace("audio", "volume.hardware.paused", state.hardware_level);
+    }
 }
 void ChangeVolume(TAny* context, TInt direction) {
     auto& state = *static_cast<State*>(context);
@@ -53,7 +50,6 @@ State& Session() {
         if (!memory) User::Panic(_L("NgageAudio"), KErrNoMemory);
         state = new(memory) State;
         TInt result = state->library.Load(_L("Z:\\sys\\bin\\MmfDevSound.dll"));
-        Ngage::Trace("audio", "rom.load", result, 1549);
         if (result != KErrNone) User::Panic(_L("NgageAudio"), result);
         result = UserSvr::DllSetTls(reinterpret_cast<TInt>(&_E32Startup), 0xe0000964, state);
         if (result != KErrNone) User::Panic(_L("NgageAudio"), result);
@@ -73,7 +69,6 @@ extern "C" TLibraryFunction AudioResolve(TInt ordinal, TInt* args) {
         if (!state.remote_attempted) {
             state.remote_attempted = true;
             const TInt pin = state.callback_pin.Load(_L("C:\\sys\\bin\\NgageSoundX.dll"));
-            Ngage::Trace("audio", "remote.module.pin", pin);
             if (pin == KErrNone) {
                 state.remote = Ngage::VolumeReceiver::New(ChangeVolume, &state);
                 if (!state.remote) state.callback_pin.Close();
@@ -82,40 +77,10 @@ extern "C" TLibraryFunction AudioResolve(TInt ordinal, TInt* args) {
         using Getter = TInt (*)(TAny*);
         const auto getter = reinterpret_cast<Getter>(state.library.Lookup(34));
         if (getter) {
-            const TInt requested = args[1];
             const TInt maximum = getter(reinterpret_cast<TAny*>(args[0]));
-            args[1] = Ngage::ScaleLegacyVolume(state.hardware_level < 0 ? requested : state.hardware_level, maximum);
-            Ngage::Trace("audio", "volume.legacy.applied.max", requested, args[1], maximum);
+            args[1] = Ngage::ScaleLegacyVolume(state.hardware_level < 0 ? args[1] : state.hardware_level, maximum);
         }
     }
-#if NGAGE_DIAGNOSTIC
-    const TUint count = ++state.calls[ordinal];
-    const bool record = ordinal != 33 || count <= 3 || (count & 255) == 0;
-    if (record) {
-        Ngage::Trace("audio", "call", ordinal, count, args[0]);
-        switch (ordinal) {
-        case 3: {
-            const auto* config = reinterpret_cast<const TInt*>(args[1]);
-            Ngage::Trace("audio", "config.rate.encoding.channels", config[0], config[1], config[2]);
-            Ngage::Trace("audio", "config.buffer", config[3]);
-            break;
-        }
-        case 5: Ngage::Trace("audio", "initialize.fourcc.state", args[2], args[3]); break;
-        case 6: Ngage::Trace("audio", "initialize.state", args[2]); break;
-        case 18: Ngage::Trace("audio", "balance", args[1], args[2]); break;
-        case 32: Ngage::Trace("audio", "gain", args[1]); break;
-        case 37: {
-            using Getter = TInt (*)(TAny*);
-            const auto max_volume = reinterpret_cast<Getter>(state.library.Lookup(34));
-            const auto volume = reinterpret_cast<Getter>(state.library.Lookup(30));
-            Ngage::Trace("audio", "volume.request.max.current", args[1],
-                         max_volume ? max_volume(reinterpret_cast<TAny*>(args[0])) : KErrNotSupported,
-                         volume ? volume(reinterpret_cast<TAny*>(args[0])) : KErrNotSupported);
-            break;
-        }
-        }
-    }
-#endif
     const auto entry = state.library.Lookup(ordinal);
     if (!entry) User::Panic(_L("NgageAudio"), KErrNotFound);
     return entry;
