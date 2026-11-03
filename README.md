@@ -2,7 +2,7 @@
 
 An adaptation of Nokia N97's N-Gage 2.0 for hacked Symbian^3 / Belle phones,
 with touchscreen controls for devices without a physical keypad.
-Current version: **1.30(1550)**.
+Current version: **1.30(1551)**.
 
 **Hooked: Creatures of the Deep** has been tested on a **Nokia 808 Belle FP2**,
 with working graphics, sound, virtual controls and hardware volume buttons.
@@ -13,6 +13,7 @@ Other games and phone models have not all been tested.
 - Keep using the original **Games** app to install games and launch them from their covers.
 - Use translucent virtual controls: a five-way pad on the left and R / A / B / L on the right. The upper-left button hides or shows the controls.
 - Enjoy game graphics and sound, with volume adjustment using the phone's volume buttons.
+- Touch controls start with each game and exit when that game closes. Switching to another app keeps them available when you return.
 - No extra Games(Touch) launcher icon. The current version does not write diagnostic logs.
 
 The adaptation builds on the N97 software, adding display, audio and touch-control

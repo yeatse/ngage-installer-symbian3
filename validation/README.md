@@ -290,3 +290,27 @@ removed probe command lines, self-test command, log-directory or trace markers.
 Ordinary SIS SHA-256:
 `669006d9d47628c3aa61add2ed3e4f48989d88efd08d4d77752676a227b6e315`.
 This cleanup has not received a separate physical-phone retest yet.
+
+## Per-game touch-service lifetime — 1.30(1551)
+
+The display DLL now passes its game process ID when starting the helper. The
+helper subscribes to RProcess::Logon and returns when that process exits, with
+pending notifications cancelled during cleanup. Foreground ownership is checked
+by process ID; a game in the background retains its hidden helper. Per-game
+mutex names allow independent owners and prevent duplicate helpers. The SIS
+installs the executable without starting it. The touch component advances to
+1.0.9 so upgrades replace both the helper and the matching display DLL.
+
+All 24 SDK-backed host checks passed. The native
+[touch lifecycle fixture](touch-lifecycle/README.md), which is not shipped in the
+installer, passed all 17 checks: invalid startup, background survival, duplicate
+startup, concurrent owners, forced owner death and normal owner return.
+EKA2L1 branch fix/global-mutex-uniqueness (acd9e4bec), from de3d1e163, corrects
+named-mutex duplicate creation exposed by this fixture. Linux Release regression
+passed all 466 cases / 33,469 assertions. Physical-phone retesting of 1551 is pending.
+
+The exact final helper and display DLL were also loaded in the existing X7
+Hooked fixture. Starting the game from Games created the helper, displayed the
+controls, and L advanced language/save-slot selection. Final ordinary SIS SHA-256:
+`84b26e1261313407cada497e868375b20b0881c0c7b27275e924cc3c36f72c32`.
+Its touch executable description is Install (1), options 0, with no run action.

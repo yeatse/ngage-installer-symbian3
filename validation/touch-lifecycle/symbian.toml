@@ -1,0 +1,17 @@
+[project]
+architecture = "armv6"
+name = "touch_lifecycle"
+kind = "e32-import-experiment"
+cmake_preset = "symbian-pic"
+uid3 = 0xe0000998
+
+[package]
+uid = 0xe0000999
+name = "Touch lifecycle validation"
+vendor = "ngage-installer-symbian3"
+executable_name = "touch_lifecycle.exe"
+version = [1, 0, 0]
+
+[application]
+caption = "Touch lifecycle"
+short_caption = "Touch lifecycle"

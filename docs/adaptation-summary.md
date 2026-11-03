@@ -1,6 +1,6 @@
 # N-Gage 2.0 adaptation for Symbian^3
 
-The delivered version is 1.30(1550), based on the N97 N-Gage 1.30(1541) installer.
+The delivered version is 1.30(1551), based on the N97 N-Gage 1.30(1541) installer.
 User testing on a Nokia 808 Belle FP2 with Install Server and Open4All confirmed
 working gameplay, sound, hardware volume buttons and L/R softkeys. Emulator
 validation used a locally built Linux EKA2L1 with N97 and X7 ROMs.
@@ -17,7 +17,12 @@ installation without signing the package.
 
 The original Games workflow is retained: copy `.n-gage` files to `E:\n-gage`,
 install them inside Games, then launch them from their covers. The touch service
-runs in the background without registering an extra Games(Touch) launcher icon.
+runs only while its owning game process exists, without registering an extra
+Games(Touch) launcher icon. The display DLL passes its process ID to the helper,
+which subscribes to `RProcess::Logon` and exits when the game ends. The installer
+does not start the helper. A per-game mutex prevents duplicates while allowing
+separate games to have independent helpers. Focus checks use the actual owner
+process ID, so switching to another app hides controls without ending the service.
 The ordinary package uses the phone's existing installation service. A separate
 package provides installation-service compatibility for the supplied X7 custom
 ROM, avoiding replacement of the existing service on an 808.

@@ -1,12 +1,11 @@
 #include <e32std.h>
 #include <e32keys.h>
-#include <f32file.h>
 #include <gdi.h>
 #include <w32std.h>
 #include <algorithm>
 #include <array>
 #include <memory>
-#include <vector>
+#include "../common/touch_service.h"
 
 namespace {
 TPtrC Text(const char16_t* text) {
@@ -42,7 +41,9 @@ struct ScopedWsSession : RWsSession {
 
 class Controls {
     ScopedWsSession ws_;
-    RFs files_;
+    RProcess game_;
+    TRequestStatus game_exit_;
+    bool watching_game_ = false;
     std::unique_ptr<CWsScreenDevice> screen_;
     std::unique_ptr<CWindowGc> gc_;
     RWindowGroup group_;
@@ -52,7 +53,6 @@ class Controls {
     std::array<int, 16> pointers_;
     std::array<int, kButtonCount> held_{};
     std::array<unsigned, kButtonCount> repeat_at_{};
-    std::vector<TUint32> games_;
     CFont* font_ = nullptr;
     TRequestStatus events_, redraws_, tick_;
     TSize size_{0, 0};
@@ -63,31 +63,18 @@ class Controls {
     bool hidden_ = false;
     bool requests_ = false;
 
-    void ScanGames() {
-        games_.clear();
-        for (const auto* path : {u"C:\\private\\20007b39\\game*",
-                                u"E:\\private\\20007b39\\game*"}) {
-            CDir* entries = nullptr;
-            if (files_.GetDir(Text(path), KEntryAttDir, ESortByName, entries) != KErrNone) continue;
-            for (TInt i = 0; i < entries->Count(); ++i) {
-                const auto& entry = (*entries)[i];
-                if (!entry.IsDir() || entry.iName.Length() <= 4) continue;
-                TLex number(entry.iName.Mid(4));
-                TUint uid = 0;
-                if (number.Val(uid, EDecimal) == KErrNone && number.Eos()) games_.push_back(uid);
-            }
-            delete entries;
-        }
-    }
-
-    TUint32 FocusSid(TInt focus) {
+    bool GameHasFocus(TInt focus) {
         TThreadId id;
-        if (ws_.GetWindowGroupClientThreadId(focus, id) != KErrNone) return 0;
+        if (ws_.GetWindowGroupClientThreadId(focus, id) != KErrNone) return false;
         RThread thread;
-        if (thread.Open(id) != KErrNone) return 0;
-        const auto sid = thread.SecureId().iId;
+        if (thread.Open(id) != KErrNone) return false;
+        RProcess process;
+        const TInt result = thread.Process(process);
         thread.Close();
-        return sid;
+        if (result != KErrNone) return false;
+        const bool matches = process.Id() == game_.Id();
+        process.Close();
+        return matches;
     }
 
     void Send(int button, TInt type, TInt repeats = 0) {
@@ -218,9 +205,7 @@ class Controls {
         ++clock_;
         const TInt focus = ws_.GetFocusWindowGroup();
         if (focus != last_focus_ || (!active_ && clock_ % 10 == 0)) {
-            const auto sid = FocusSid(focus);
-            if (focus != last_focus_) ScanGames();
-            const bool is_game = std::find(games_.begin(), games_.end(), sid) != games_.end();
+            const bool is_game = GameHasFocus(focus);
             if (focus != target_ || is_game != active_) {
                 ReleaseAll();
                 target_ = is_game ? focus : 0;
@@ -239,10 +224,16 @@ class Controls {
 
 public:
     Controls() { pointers_.fill(-1); }
-    int Run() {
-        TInt result = ws_.Connect();
+    int Run(TProcessId game_id) {
+        TInt result = game_.Open(game_id);
         if (result != KErrNone) return result;
-        if ((result = files_.Connect()) != KErrNone) return result;
+        if (game_.ExitType() != EExitPending) return KErrNone;
+        game_.Logon(game_exit_);
+        watching_game_ = true;
+        if (game_exit_ != KRequestPending)
+            return game_.ExitType() == EExitPending ? game_exit_.Int() : KErrNone;
+        result = ws_.Connect();
+        if (result != KErrNone) return result;
         screen_ = std::make_unique<CWsScreenDevice>(ws_);
         if ((result = screen_->Construct()) != KErrNone) return result;
         gc_ = std::make_unique<CWindowGc>(screen_.get());
@@ -271,6 +262,7 @@ public:
         ws_.Flush();
         for (;;) {
             User::WaitForAnyRequest();
+            if (game_exit_ != KRequestPending) return KErrNone;
             if (events_ != KRequestPending) {
                 if (events_.Int() != KErrNone) return events_.Int();
                 TWsEvent event;
@@ -296,6 +288,11 @@ public:
     }
     ~Controls() {
         ReleaseAll();
+        if (watching_game_ && game_exit_ == KRequestPending) {
+            game_.LogonCancel(game_exit_);
+            User::WaitForRequest(game_exit_);
+        }
+        game_.Close();
         if (requests_) {
             timer_.Cancel();
             ws_.EventReadyCancel();
@@ -308,20 +305,26 @@ public:
         for (auto& window : windows_) if (window) window->Close();
         group_.Close();
         if (font_) screen_->ReleaseFont(font_);
-        files_.Close();
     }
 };
 }
 
 int main() {
+    TBuf<32> command;
+    if (User::CommandLineLength() > command.MaxLength()) return KErrArgument;
+    User::CommandLine(command);
+    TLex parser(command);
+    TInt64 id = 0;
+    if (parser.Val(id, EDecimal) != KErrNone || !parser.Eos() || id <= 0) return KErrArgument;
+    const TProcessId game_id(id);
     RMutex single;
-    const TInt created = single.CreateGlobal(Text(u"NgageTouchControls"));
+    const TInt created = single.CreateGlobal(Ngage::TouchServiceMutex(game_id));
     if (created == KErrAlreadyExists) return KErrNone;
     if (created != KErrNone) return created;
     TInt result = KErrNone;
     {
         Controls controls;
-        result = controls.Run();
+        result = controls.Run(game_id);
     }
     single.Close();
     return result;

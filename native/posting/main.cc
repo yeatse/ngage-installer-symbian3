@@ -3,6 +3,7 @@
 #include "Posting_Surface_Factory.h"
 #include <fbs.h>
 #include <w32std.h>
+#include "../common/touch_service.h"
 
 
 // CBase has an empty destructor. A local definition avoids a data import for
@@ -41,9 +42,11 @@ TUint CPostingSurface::TPostingBufferChunk::GetOffsetInChunk() { return iOffsetI
 namespace {
 void StartControls() {
     RMutex existing;
-    if (existing.OpenGlobal(_L("NgageTouchControls")) == KErrNone) { existing.Close(); return; }
+    if (existing.OpenGlobal(Ngage::TouchServiceMutex(RProcess().Id())) == KErrNone) { existing.Close(); return; }
     RProcess helper;
-    TInt result = helper.Create(_L("C:\\sys\\bin\\ngage_touch.exe"), KNullDesC);
+    TBuf<32> command;
+    command.AppendNum(RProcess().Id().Id());
+    TInt result = helper.Create(_L("C:\\sys\\bin\\ngage_touch.exe"), command);
     if (result == KErrNone) { helper.Resume(); helper.Close(); }
 }
 TUint Divide(TUint numerator, TUint denominator) {
