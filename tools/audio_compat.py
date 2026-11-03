@@ -92,7 +92,7 @@ def redirect_audio_image(raw):
     return result
 
 
-def replace_images(package, source_sha, transform, filename, copies=2):
+def replace_images(package, source_sha, transform, filename, copies=2, descriptions=None):
     units, original, updated, payload_count = data_units(package), None, None, 0
     for ui, unit in enumerate(units):
         files = array_items(fields(unit.payload)[0])
@@ -126,7 +126,7 @@ def replace_images(package, source_sha, transform, filename, copies=2):
             return Field(field.kind, sequence(rewrite(f) for f in fields(field.payload)))
         return field
     controller = rewrite(package.controller)
-    if description_count != payload_count:
+    if description_count != (payload_count if descriptions is None else descriptions):
         raise ValueError(f'{filename} descriptions do not match payloads')
     result = Package(package.uid_header, controller, Field(30, array(31, units).encode()))
     Package.parse(result.encode())

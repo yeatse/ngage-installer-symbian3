@@ -67,6 +67,21 @@ game's own volume setting, clears the instance reference on Stop, and keeps the
 callback DLL loaded while receivers exist to avoid dangling object or code
 references.
 
+## Licence status
+
+Games installed from exported packages have no DRM rights object for their
+content ID, and new rights can no longer be issued. The client's
+`gametitlemetadata.dll` then falls back to the installed-parts state, which the
+Symbian^3 Games UI and PlayServer report as a trial: Games shows a Trial ribbon
+and the game reports a trial version. The S60 3rd Edition client computes the same
+state but does not present it as a trial.
+
+The build retargets one Thumb branch in the client's licence query so that "no
+DRM permission" takes the existing valid-rights path. Expired or limited rights
+objects and missing game parts are still reported as before. The patch is
+applied only to the pinned DLL image and is verified by hash and instruction
+bytes.
+
 ## Build and validation
 
 The project uses symbian-platform 0.3.0 to compile native components from source
@@ -74,9 +89,9 @@ on Linux and produce unsigned SIS packages. GitHub Actions builds and uploads
 the artifacts. Large installer, SDK and X7 service inputs are cached by SHA-256
 and verified after restoration. Regular builds do not download ROMs or games.
 
-The 24 project checks cover package structure, original-input protection,
-import redirection, component identities, volume scaling, and Thumb softkey
-execution and ABI behavior. Runtime validation covers the N97 baseline,
+The 27 project checks cover package structure, original-input protection,
+import redirection, component identities, volume scaling, the licence-query
+patch, and Thumb softkey execution and ABI behavior. Runtime validation covers the N97 baseline,
 installation and launch inside Games on X7, game menus and gameplay screens,
 and user testing on the physical 808.
 
