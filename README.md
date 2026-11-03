@@ -1,48 +1,53 @@
-# 在 Symbian^3 手机上玩 N-Gage 2.0
+# Play N-Gage 2.0 on Symbian^3
 
-把 Nokia N97 的 N-Gage 2.0 适配到已破解的 Symbian^3 / Belle 手机，
-让没有实体键盘的机型也能用触屏玩游戏。当前版本：**1.30(1550)**。
+An adaptation of Nokia N97's N-Gage 2.0 for hacked Symbian^3 / Belle phones,
+with touchscreen controls for devices without a physical keypad.
+Current version: **1.30(1550)**.
 
-已在 **Nokia 808 Belle FP2** 上实测 Hooked: Creatures of the Deep，
-游戏画面、声音、虚拟按键和手机音量键均可正常使用。其他游戏和机型尚未逐一验证。
+**Hooked: Creatures of the Deep** has been tested on a **Nokia 808 Belle FP2**,
+with working graphics, sound, virtual controls and hardware volume buttons.
+Other games and phone models have not all been tested.
 
-## 做了什么
+## Features
 
-- 保留原来的 **Games**：在里面安装游戏、点击封面启动。
-- 加入可隐藏的半透明虚拟键：左侧五向键，右侧 R / A / B / L，左上角展开或收起。
-- 适配游戏显示和声音，支持用手机音量键调整音量。
-- 不增加额外的 Games(Touch) 图标，新版不再生成诊断日志。
+- Keep using the original **Games** app to install games and launch them from their covers.
+- Use translucent virtual controls: a five-way pad on the left and R / A / B / L on the right. The upper-left button hides or shows the controls.
+- Enjoy game graphics and sound, with volume adjustment using the phone's volume buttons.
+- No extra Games(Touch) launcher icon. The current version does not write diagnostic logs.
 
-适配以 N97 版程序为基础，为新系统补齐显示、声音和触控操作的兼容处理，
-不需要刷入新 ROM，也不需要修改游戏文件。
+The adaptation builds on the N97 software, adding display, audio and touch-control
+compatibility for newer phones. It requires no ROM flashing or changes to game files.
 
-## 下载与使用
+## Download and play
 
-手机需要已经破解，并开启 **Install Server** 和 **Open4All**。
+Your phone must already be hacked, with **Install Server** and **Open4All** enabled.
 
-1. 打开 [安装包下载页面](https://github.com/yeatse/ngage-installer-symbian3/actions/workflows/build.yml)，选择最新成功的构建，在底部 **Artifacts** 下载 `ngage-installer-symbian3-unsigned` 并解压。下载需要登录 GitHub。
-2. 将 **`ngage-installer-symbian3.sis`** 传到手机安装，无需签名。普通手机请使用这个文件。
-3. 把 `.n-gage` 游戏文件放入手机的 **`E:\n-gage`** 文件夹。
-4. 打开 **Games**，在其中安装游戏，再点击游戏封面启动。
+1. Open the [build downloads page](https://github.com/yeatse/ngage-installer-symbian3/actions/workflows/build.yml), select the latest successful build, and download `ngage-installer-symbian3-unsigned` under **Artifacts** at the bottom. Extract the downloaded archive. A GitHub login is required to download artifacts.
+2. Transfer **`ngage-installer-symbian3.sis`** to your phone and install it. No signing is needed. Use this file for ordinary phones.
+3. Copy your `.n-gage` game files to **`E:\n-gage`** on the phone.
+4. Open **Games**, install the game there, then select its cover to launch it.
 
-升级时，请先退出 Games，覆盖安装后重启手机。安装包不包含游戏，游戏文件需自行准备。
+To upgrade, exit Games, install the new package over the existing version, then
+restart your phone. Games are not included; you must provide your own game files.
 
-## 效果截图
+## Screenshots
 
-以下截图来自 X7 ROM 的 EKA2L1 模拟器验证；上面的 808 实测结果由用户反馈确认。
+These screenshots were captured in EKA2L1 using an X7 ROM. The Nokia 808 results
+above were confirmed through user testing on a physical phone.
 
-**在 Games 内完成游戏安装**
+**Game installation completed inside Games**
 
-![Games 内提示游戏安装完成](validation/screenshots/x7-install-complete.png)
+![Games showing that game installation is complete](validation/screenshots/x7-install-complete.png)
 
-**游戏画面与虚拟按键：R 在右上，L 在右下，左上角可收起按键**
+**In-game controls: R at the upper right, L at the lower right, and hide/show at the upper left**
 
-![Hooked 游戏画面及五向键、R、A、B、L 和收起按钮](docs/images/game-controls.png)
+![Hooked with the five-way pad, R, A, B, L and hide button](docs/images/game-controls.png)
 
-## 更多资料
+## Further reading
 
-- [适配原理与改动总结](docs/adaptation-summary.zh-CN.md)
-- [从源码构建安装包](docs/build.md)
-- [验证过程、问题排查与历史记录](validation/README.md)
+- [How the adaptation works and what changed (Chinese)](docs/adaptation-summary.zh-CN.md)
+- [Building from source (Chinese)](docs/build.md)
+- [Validation, troubleshooting and development history](validation/README.md)
 
-Nokia 程序和游戏画面的版权归原权利人所有，项目的 MIT 许可不涵盖这些内容。
+Nokia software and game imagery belong to their respective copyright holders
+and are not covered by this project's MIT license.
