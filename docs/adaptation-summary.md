@@ -30,8 +30,12 @@ ROM, avoiding replacement of the existing service on an 808.
 ## Display and touch controls
 
 A native Display Posting API compatibility DLL presents the game through the
-phone's existing window and bitmap services. It supports buffer submission,
-clipping, scaling and RGB565/RGB888/RGBx888 conversion. Its capabilities are set
+phone's existing window and bitmap services. Frames are drawn into the window
+server's direct screen access buffer, which is composed only inside the game's
+running DSA region; a separate presentation window would cover the game window,
+empty that region and stop games that only post while it is non-empty. It
+supports buffer submission, DSA clipping, scaling and RGB565/RGB888/RGBx888
+conversion. Its capabilities are set
 to ALL-TCB to match the window/bitmap dependencies, resolving the loader's -46
 permission failure that preceded the crash on the physical phone. The phone
 components use existing ROM interfaces.

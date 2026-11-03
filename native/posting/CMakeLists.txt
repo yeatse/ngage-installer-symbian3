@@ -5,7 +5,8 @@ include(SymbianPlatform)
 symbian_add_dynamic_library(PostingSurfaceFactory SOURCES main.cc
   LINKER_SCRIPT "${SYMBIAN_SDK_PREFIX}/cmake/dll_image.ld"
   UID3 0xe0000962 EXPORT_DEFINITION exports.def)
-set_property(TARGET PostingSurfaceFactory APPEND PROPERTY SYMBIAN_EXTRA_PROXIES "${SYMBIAN_SDK_PREFIX}/proxies/fbscli/fbscli.dso")
+set_property(TARGET PostingSurfaceFactory APPEND PROPERTY SYMBIAN_EXTRA_PROXIES
+  "${SYMBIAN_SDK_PREFIX}/proxies/fbscli/fbscli.dso" "${SYMBIAN_SDK_PREFIX}/proxies/bitgdi/bitgdi.dso")
 set_source_files_properties(main.cc PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden")
 target_include_directories(PostingSurfaceFactory SYSTEM PRIVATE
   "${SYMBIAN_SDK_PREFIX}/include/native"
@@ -15,4 +16,5 @@ target_include_directories(PostingSurfaceFactory SYSTEM PRIVATE
 target_compile_options(PostingSurfaceFactory PRIVATE -fshort-wchar -fno-exceptions -fno-rtti
   "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${SYMBIAN_SDK_PREFIX}/cmake/native_cpp_compat.h>")
 target_link_libraries(PostingSurfaceFactory PRIVATE Symbian::EUser
-  Symbian::FileServer Symbian::WindowServer "${SYMBIAN_SDK_PREFIX}/proxies/fbscli/fbscli.dso" Symbian::Gdi)
+  Symbian::FileServer Symbian::WindowServer "${SYMBIAN_SDK_PREFIX}/proxies/fbscli/fbscli.dso"
+  "${SYMBIAN_SDK_PREFIX}/proxies/bitgdi/bitgdi.dso" Symbian::Gdi)
