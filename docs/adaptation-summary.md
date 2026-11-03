@@ -41,7 +41,10 @@ unrotated, scaled to the full screen height and centred; for example, 240×320
 is shown at 270×360 from x=185 on a 640×360 screen. The installer rewrites the
 N97 display configuration selected on Symbian^3. That configuration enables the
 portrait option and maps both orientations to landscape window-server modes, and
-it scales portrait backbuffers to the screen height. Two pinned NGI instructions
+it scales portrait backbuffers to the screen height. It also reports the native
+display as 240×320, matching its portrait orientation at angle 0; games such as
+Reset Generation lay out for the native size and otherwise draw only the top 240
+lines of a 240×320 buffer. Two pinned NGI instructions
 are changed. `ngigameorientation.dll` keeps the current landscape screen mode
 when no portrait mode exists, and `ngibackbuffer.dll` keeps portrait buffer
 dimensions instead of swapping them. The compatibility DLL hides its window only

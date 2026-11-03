@@ -47,6 +47,8 @@ class OrientationCompatibilityTests(unittest.TestCase):
         original = sections(parse_cre(self.raw[CONFIG_SHA256])[1])
         patched = sections(parse_cre(patch_config(self.raw[CONFIG_SHA256]))[1])
         self.assertEqual(patched.keys(), original.keys())
+        display = patched['/hardware/graphics/displays/0']
+        self.assertEqual((display['nativewidth'][3], display['nativeheight'][3]), (240, 320))
         options = patched['/hardware/graphics/displays/0/ngageorientations']
         self.assertEqual(options['useroptions'][3], 3)
         self.assertEqual(options['wsinimodes'][3], '0x04, 0x02')

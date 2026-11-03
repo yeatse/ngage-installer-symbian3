@@ -15,7 +15,8 @@ CODE_BASE = 0x8000
 MODE_LEAVE = 0x832a, bytes.fromhex('300000f034e9'), bytes.fromhex('b31d0ed03000')
 # Portrait backbuffers keep their own width and height instead of being swapped to landscape.
 DIMENSION_SWAP = 0xd3e4, struct.pack('<I', 0x1a000010), struct.pack('<I', 0xea000020)
-ORIENTATIONS = '/hardware/graphics/displays/0/ngageorientations'
+DISPLAY = '/hardware/graphics/displays/0'
+ORIENTATIONS = DISPLAY + '/ngageorientations'
 BACKBUFFERS = '/hardware/graphics/backbuffer/configurations/'
 USER_OPTIONS = 3
 WS_MODES = '0x04, 0x02'
@@ -119,6 +120,12 @@ def patch_config(raw):
     screen_height = backbuffer['postingsurfacefullscreenheight'][3]
     if screen_width <= screen_height:
         raise ValueError('Expected a landscape posting surface')
+    # Games lay out for the native display size; describe the panel as portrait, matching its
+    # orientation 0 at angle 0, so portrait games use their whole backbuffer height.
+    display = config[DISPLAY]
+    if display['nativewidth'][3] > display['nativeheight'][3]:
+        display['nativewidth'][3], display['nativeheight'][3] = \
+            display['nativeheight'][3], display['nativewidth'][3]
     options = config[ORIENTATIONS]
     options['useroptions'][3] = USER_OPTIONS
     options['wsinimodes'][3] = WS_MODES
