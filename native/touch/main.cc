@@ -384,12 +384,47 @@ void ReportContext(RThread& thread, TUint id) {
         }
         Ngage::Trace("watch", "context", i, 0, 0, &line);
     }
+    if (words < 16) return;
+    const TUint pc = regs[15];
+    if (pc < 0x80000000u) return;
+    for (TUint at = (pc & ~3u) - 0x20; at < (pc & ~3u) + 0x20; at += 16) {
+        TBuf<96> line;
+        line.AppendNum(at, EHex); line.Append(':');
+        for (TUint j = 0; j < 16; j += 4) {
+            line.Append(' '); line.AppendNum(*reinterpret_cast<const TUint32*>(at + j), EHex);
+        }
+        Ngage::Trace("watch", "pc.words", 0, 0, 0, &line);
+    }
+    // ROM code is mapped at the same address in every process, so the nearest
+    // export below pc in any loaded library names the crashing function.
+    TFindLibrary find(_L("*"));
+    TFullName name;
+    TUint best = 0; TInt best_ordinal = 0; TFileName best_file;
+    TInt count = 0;
+    while (find.Next(name) == KErrNone && count < 400) {
+        ++count;
+        const TInt start = name.LocateReverse(':') + 1;
+        TFileName file(name.Mid(start));
+        TInt cut = file.Locate('{'); if (cut >= 0) file.SetLength(cut);
+        cut = file.Locate('['); if (cut >= 0) file.SetLength(cut);
+        if (file.Locate('.') < 0) file.Append(_L(".dll"));
+        RLibrary library;
+        if (library.Load(file) != KErrNone) continue;
+        for (TInt ordinal = 1; ordinal < 5000; ++ordinal) {
+            const TUint address = reinterpret_cast<TUint>(library.Lookup(ordinal)) & ~1u;
+            if (!address) break;
+            if (address <= pc && address > best) { best = address; best_ordinal = ordinal; best_file = file; }
+        }
+        library.Close();
+    }
+    Ngage::Trace("watch", "pc.export.ordinal.offset", static_cast<TInt>(best), best_ordinal,
+                 static_cast<TInt>(pc - best), &best_file);
 }
 
 int WatchAll() {
     RMutex single;
     if (single.CreateGlobal(Text(u"NgageCrashWatch")) != KErrNone) return KErrNone;
-    Ngage::Trace("watch", "start", 1553);
+    Ngage::Trace("watch", "start", 1554);
     {
         RLibrary library;
         const TInt loaded = library.Load(_L("PostingSurfaceFactory.dll"));

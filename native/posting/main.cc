@@ -201,6 +201,13 @@ public:
         const TInt count = bitmap_.DataStride() / 4 * bitmap_.SizeInPixels().iHeight;
         for (TInt i = 0; i < count; ++i) pixels[i] = 0xff000000u;
         bitmap_.EndDataAccess();
+        {
+            const TInt group = ws_.GetFocusWindowGroup();
+            TBuf<96> name;
+            ws_.GetWindowGroupNameFromIdentifier(group, name);
+            for (TInt i = 0; i < name.Length(); ++i) if (name[i] == 0) name[i] = '|';
+            Ngage::Trace("posting", "focus.group", group, ws_.GetWindowGroupOrdinalPriority(group), 0, &name);
+        }
         Ngage::Trace("posting", "initialize.done", bitmap_.SizeInPixels().iWidth, bitmap_.SizeInPixels().iHeight, reinterpret_cast<TInt>(buffer_.GetBuffer()));
         LogModules("initialize");
     }
@@ -325,6 +332,11 @@ public:
         Ngage::Trace("posting", "clip.count.frames", region.Count(), frames_);
         Ngage::Trace("posting", "clip.tl", bounds.iTl.iX, bounds.iTl.iY);
         Ngage::Trace("posting", "clip.br", bounds.iBr.iX, bounds.iBr.iY);
+        for (TInt i = 0; i < region.Count() && i < 24; ++i) {
+            const TRect& r = region.RectangleList()[i];
+            Ngage::Trace("posting", "clip.rect.tl", i, r.iTl.iX, r.iTl.iY);
+            Ngage::Trace("posting", "clip.rect.br", i, r.iBr.iX, r.iBr.iY);
+        }
         clip_.Copy(region);
         clip_set_ = true;
         return clip_.CheckError() ? KErrNoMemory : KErrNone;
@@ -340,7 +352,7 @@ CPostingSurface* CPostingSurfaceFactory::NewPostingSurfaceL(TInt display) {
 }
 __attribute__((visibility("default")))
 CPostingSurfaceFactory* NewSurfaceManagerFactoryL() {
-    Ngage::Trace("posting", "factory.entry", 1553, reinterpret_cast<TInt>(&NewSurfaceManagerFactoryL));
+    Ngage::Trace("posting", "factory.entry", 1554, reinterpret_cast<TInt>(&NewSurfaceManagerFactoryL));
     LogModules("factory");
     StartWatcher();
     StartControls();
