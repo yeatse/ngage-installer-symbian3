@@ -1,5 +1,6 @@
 #include <e32std.h>
 #include <e32keys.h>
+#include <e32hal.h>
 #include <gdi.h>
 #include <w32std.h>
 #include <algorithm>
@@ -386,8 +387,7 @@ void ReportContext(RThread& thread, TUint id) {
     }
     if (words < 16) return;
     const TUint pc = regs[15];
-    if (pc < 0x80000000u) return;
-    for (TUint at = (pc & ~3u) - 0x20; at < (pc & ~3u) + 0x20; at += 16) {
+    if (pc >= 0x80000000u) for (TUint at = (pc & ~3u) - 0x20; at < (pc & ~3u) + 0x20; at += 16) {
         TBuf<96> line;
         line.AppendNum(at, EHex); line.Append(':');
         for (TUint j = 0; j < 16; j += 4) {
@@ -396,10 +396,10 @@ void ReportContext(RThread& thread, TUint id) {
         Ngage::Trace("watch", "pc.words", 0, 0, 0, &line);
     }
     // ROM code is mapped at the same address in every process, so the nearest
-    // export below pc in any loaded library names the crashing function.
+    // export below each ROM-looking register names the function it points into.
+    std::array<TUint, 18> best{}; std::array<TInt, 18> best_ordinal{}; std::array<TBuf<40>, 18> best_file;
     TFindLibrary find(_L("*"));
     TFullName name;
-    TUint best = 0; TInt best_ordinal = 0; TFileName best_file;
     TInt count = 0;
     while (find.Next(name) == KErrNone && count < 400) {
         ++count;
@@ -413,18 +413,28 @@ void ReportContext(RThread& thread, TUint id) {
         for (TInt ordinal = 1; ordinal < 5000; ++ordinal) {
             const TUint address = reinterpret_cast<TUint>(library.Lookup(ordinal)) & ~1u;
             if (!address) break;
-            if (address <= pc && address > best) { best = address; best_ordinal = ordinal; best_file = file; }
+            for (TInt r = 0; r < words && r < 18; ++r) {
+                if (regs[r] < 0x80000000u || regs[r] >= 0xa0000000u) continue;
+                if (address <= regs[r] && address > best[r]) { best[r] = address; best_ordinal[r] = ordinal; best_file[r] = file.Left(40); }
+            }
         }
         library.Close();
     }
-    Ngage::Trace("watch", "pc.export.ordinal.offset", static_cast<TInt>(best), best_ordinal,
-                 static_cast<TInt>(pc - best), &best_file);
+    for (TInt r = 0; r < words && r < 18; ++r)
+        if (best[r]) Ngage::Trace("watch", "reg.export.ordinal.offset", r, best_ordinal[r],
+                                  static_cast<TInt>(regs[r] - best[r]), &best_file[r]);
+}
+
+void TraceFreeRam(TInt id) {
+    TMemoryInfoV1Buf info;
+    if (UserHal::MemoryInfo(info) == KErrNone)
+        Ngage::Trace("watch", "ram.free.total.pid", info().iFreeRamInBytes, info().iTotalRamInBytes, id);
 }
 
 int WatchAll() {
     RMutex single;
     if (single.CreateGlobal(Text(u"NgageCrashWatch")) != KErrNone) return KErrNone;
-    Ngage::Trace("watch", "start", 1554);
+    Ngage::Trace("watch", "start", 1555);
     {
         RLibrary library;
         const TInt loaded = library.Load(_L("PostingSurfaceFactory.dll"));
@@ -468,6 +478,7 @@ int WatchAll() {
             TModuleMemoryInfo info;
             const TInt memory = process.GetMemoryInfo(info);
             Ngage::Trace("watch", "process.sid", static_cast<TInt>(process.SecureId().iId), static_cast<TInt>(id), 0, &image);
+            TraceFreeRam(static_cast<TInt>(id));
             Ngage::Trace("watch", "process.code.base.size", memory, static_cast<TInt>(info.iCodeBase), static_cast<TInt>(info.iCodeSize));
         }
         for (auto& item : watched) {
@@ -493,8 +504,10 @@ int WatchAll() {
                 const TExitCategoryName category = thread.ExitCategory();
                 Ngage::Trace("watch", "thread.exit.type.reason.tid", thread.ExitType(), thread.ExitReason(),
                              static_cast<TInt>(item.thread_ids[i]), &category);
-                if (thread.ExitType() == EExitPanic || thread.ExitType() == EExitTerminate)
+                if (thread.ExitType() == EExitPanic || thread.ExitType() == EExitTerminate) {
                     ReportContext(thread, item.thread_ids[i]);
+                    TraceFreeRam(static_cast<TInt>(item.id));
+                }
                 item.reported[i] = true;
             }
             if (item.process.ExitType() != EExitPending) {
