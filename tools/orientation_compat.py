@@ -11,7 +11,7 @@ ORIENTATION_SHA256 = 'b69f30bce5bb5a5156093fa54beaaf1ca94783ef86e9060872a328c46d
 BACKBUFFER_SHA256 = 'e879bd5a15ba145c4007f2eafb2bc1e9c1a519d3b39082e6319609d462b1741d'
 CODE_BASE = 0x8000
 # Every orientation request becomes CAknAppUiBase::SetOrientationL(landscape). The configured
-# WS mode indexes are device-specific: the X7's second mode is portrait.
+# WS mode indexes are device-specific and selected portrait on a physical 808.
 LANDSCAPE = 0x8244, bytes.fromhex('e0690526f6430028'), bytes.fromhex('00f098e9406a10e0')
 # Portrait backbuffers keep their own width and height instead of being swapped to landscape.
 DIMENSION_SWAP = 0xd3e4, struct.pack('<I', 0x1a000010), struct.pack('<I', 0xea000020)

@@ -50,8 +50,8 @@ Reset Generation lay out for the native size and otherwise draw only the top 240
 lines of a 240×320 buffer. Two pinned NGI instructions
 are changed. `ngigameorientation.dll` requests the landscape app UI
 orientation for every game orientation instead of selecting a window-server
-screen mode by configured index, which is device-specific (the X7's second mode
-is portrait), and `ngibackbuffer.dll` keeps portrait buffer dimensions instead
+screen mode by configured index, which is device-specific (on a physical 808 it
+selected portrait), and `ngibackbuffer.dll` keeps portrait buffer dimensions instead
 of swapping them.
 
 Translucent square controls provide a five-way pad on the left, R/A/B/L from top
