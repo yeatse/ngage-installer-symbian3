@@ -369,6 +369,10 @@ struct Watched {
     std::array<RThread, 16> threads;
     std::array<TUint, 16> thread_ids{};
     std::array<bool, 16> reported{};
+    std::array<std::array<TUint32, 18>, 16> last{};
+    std::array<TUint8, 16> same{};
+    std::array<TUint8, 16> logged{};
+    bool sample = false;
     int thread_count = 0;
 };
 
@@ -434,7 +438,7 @@ void TraceFreeRam(TInt id) {
 int WatchAll() {
     RMutex single;
     if (single.CreateGlobal(Text(u"NgageCrashWatch")) != KErrNone) return KErrNone;
-    Ngage::Trace("watch", "start", 1555);
+    Ngage::Trace("watch", "start", 1556);
     {
         RLibrary library;
         const TInt loaded = library.Load(_L("PostingSurfaceFactory.dll"));
@@ -443,12 +447,13 @@ int WatchAll() {
         Ngage::Trace("watch", "posting.load", loaded, loaded == KErrNone ? reinterpret_cast<TInt>(library.Lookup(1)) : 0, 0, &file);
         if (loaded == KErrNone) library.Close();
     }
-    std::array<Watched, 24> watched;
+    static std::array<Watched, 24> watched;
     const TUint self = static_cast<TUint>(RProcess().Id().Id());
     // Processes running before the watcher are baseline; only later ones get slots.
     std::array<TUint, 128> baseline{};
     TInt baseline_count = 0;
     bool first = true;
+    TUint poll = 0;
     for (;;) {
         TFindProcess find(_L("*"));
         TFullName name;
@@ -461,7 +466,8 @@ int WatchAll() {
                          (image.Length() > 0 && (image[0] == 'Z' || image[0] == 'z'));
             for (auto& item : watched) if (item.id == id) known = true;
             for (TInt i = 0; i < baseline_count; ++i) if (baseline[i] == id) known = true;
-            if (first) {
+            const TUint32 sid = process.SecureId().iId;
+            if (first && sid != 0x2000AFC4 && sid != 0x2000AFBC) {
                 if (!known && baseline_count < static_cast<TInt>(baseline.size())) baseline[baseline_count++] = id;
                 process.Close(); continue;
             }
@@ -475,6 +481,8 @@ int WatchAll() {
                 process.Close(); continue;
             }
             slot->process = process; slot->id = id; slot->thread_count = 0;
+            // Diagnostic: sample Reset Generation and Hooked (control) thread contexts.
+            slot->sample = sid == 0x2000AFC4 || sid == 0x2000AFBC;
             TModuleMemoryInfo info;
             const TInt memory = process.GetMemoryInfo(info);
             Ngage::Trace("watch", "process.sid", static_cast<TInt>(process.SecureId().iId), static_cast<TInt>(id), 0, &image);
@@ -496,7 +504,30 @@ int WatchAll() {
                 Ngage::Trace("watch", "thread", static_cast<TInt>(item.id), static_cast<TInt>(tid), 0, &name);
                 item.thread_ids[item.thread_count] = tid;
                 item.reported[item.thread_count] = false;
+                item.same[item.thread_count] = 0; item.logged[item.thread_count] = 0;
+                item.last[item.thread_count].fill(0);
                 item.threads[item.thread_count++] = thread;
+            }
+            if (item.sample && (poll % 5) == 0) for (int i = 0; i < item.thread_count; ++i) {
+                RThread& thread = item.threads[i];
+                if (thread.ExitType() != EExitPending) continue;
+                TBuf8<128> context;
+                thread.Context(context);
+                std::array<TUint32, 18> regs{};
+                Mem::Copy(regs.data(), context.Ptr(), Min(context.Length(), 72));
+                if (regs == item.last[i]) {
+                    if (++item.same[i] == 3) {
+                        Ngage::Trace("watch", "stuck.tid", static_cast<TInt>(item.thread_ids[i]));
+                        ReportContext(thread, item.thread_ids[i]);
+                    }
+                    continue;
+                }
+                item.last[i] = regs; item.same[i] = 0;
+                if (item.logged[i] >= 40) continue;
+                ++item.logged[i];
+                TBuf<128> line;
+                for (TInt r = 0; r < 16; ++r) { line.AppendNum(regs[r], EHex); line.Append(' '); }
+                Ngage::Trace("watch", "sample.tid", static_cast<TInt>(item.thread_ids[i]), 0, 0, &line);
             }
             for (int i = 0; i < item.thread_count; ++i) {
                 RThread& thread = item.threads[i];
@@ -520,6 +551,7 @@ int WatchAll() {
         }
         if (first) Ngage::Trace("watch", "baseline", baseline_count);
         first = false;
+        ++poll;
         User::After(200000);
     }
 }
