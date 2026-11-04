@@ -13,7 +13,7 @@ from audio_compat import bytepair_image
 from component_identity import header_crc
 from extract_client import extract_client
 from merge_packages import data_units
-from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP, MODE_LEAVE,
+from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP, LANDSCAPE,
                                 ORIENTATION_SHA256, adapt_orientation, build_cre, parse_cre,
                                 patch_code, patch_config, sections)
 from sis import Package, array_items, decompress, fields
@@ -51,7 +51,7 @@ class OrientationCompatibilityTests(unittest.TestCase):
         self.assertEqual((display['nativewidth'][3], display['nativeheight'][3]), (240, 320))
         options = patched['/hardware/graphics/displays/0/ngageorientations']
         self.assertEqual(options['useroptions'][3], 3)
-        self.assertEqual(options['wsinimodes'][3], '0x04, 0x02')
+        self.assertEqual(options['wsinimodes'][3], '0x01, 0x02')
         game = patched['/hardware/graphics/backbuffer/configurations/0']
         self.assertEqual((game['width'][3], game['height'][3]), (240, 320))
         self.assertEqual(game['scalingsize'][3], '0x10E, 0x168')
@@ -62,7 +62,7 @@ class OrientationCompatibilityTests(unittest.TestCase):
                 self.assertEqual(values, original[path])
 
     def test_only_the_pinned_instructions_change(self):
-        for sha, (address, before, after) in ((ORIENTATION_SHA256, MODE_LEAVE),
+        for sha, (address, before, after) in ((ORIENTATION_SHA256, LANDSCAPE),
                                               (BACKBUFFER_SHA256, DIMENSION_SWAP)):
             patch = (address, before, after)
             plain, patched = bytepair_image(self.raw[sha]), patch_code(self.raw[sha], sha, patch)
