@@ -2,6 +2,9 @@
 #include <e32keys.h>
 #include <e32hal.h>
 #include <gdi.h>
+#include <caf/content.h>
+#include <caf/data.h>
+#include <caf/agent.h>
 #include <w32std.h>
 #include <algorithm>
 #include <array>
@@ -429,6 +432,75 @@ void ReportContext(RThread& thread, TUint id) {
                                   static_cast<TInt>(regs[r] - best[r]), &best_file[r]);
 }
 
+// Diagnostic: open Reset Generation's packs through CAF the way RG_fileaccess does (EPlay).
+void ProbeContent(const TDesC& path) {
+    using namespace ContentAccess;
+    TFileName name(path);
+    CContent* content = nullptr;
+    TRAPD(created, content = CContent::NewL(path));
+    Ngage::Trace("watch", "caf.content", created, 0, 0, &name);
+    if (created != KErrNone) return;
+    TFileName agent(content->Agent().Name());
+    Ngage::Trace("watch", "caf.agent", 0, 0, 0, &agent);
+    const TInt attributes[] = {EIsProtected, ECanPlay, ECanView, ERightsNone, ERightsHaveExpired};
+    for (TInt attribute : attributes) {
+        TInt value = -1;
+        const TInt result = content->GetAttribute(attribute, value);
+        Ngage::Trace("watch", "caf.attr.err.value", attribute, result, value);
+    }
+    const TInt strings[] = {EMimeType, EContentID};
+    for (TInt attribute : strings) {
+        TFileName value;
+        const TInt result = content->GetStringAttribute(attribute, value);
+        Ngage::Trace("watch", "caf.string.err", attribute, result, 0, &value);
+    }
+    const TIntent intents[] = {EPlay, EPeek};
+    for (TIntent intent : intents) {
+        CData* data = nullptr;
+        TRAPD(opened, data = content->OpenContentL(intent));
+        Ngage::Trace("watch", "caf.open.intent.err", intent, opened);
+        if (opened != KErrNone) continue;
+        TInt size = -1;
+        TRAPD(sized, data->DataSizeL(size));
+        const TInt executed = intent == EPlay ? data->ExecuteIntent(EPlay) : 0;
+        TBuf8<16> head;
+        const TInt read = data->Read(head, head.MaxLength());
+        TBuf<40> hex;
+        for (TInt i = 0; i < head.Length(); ++i) hex.AppendNumFixedWidth(head[i], EHex, 2);
+        Ngage::Trace("watch", "caf.data.size.exec.read", sized == KErrNone ? size : sized, executed, read, &hex);
+        delete data;
+    }
+    delete content;
+}
+
+void ProbePacks(const TDesC& image) {
+    CTrapCleanup* cleanup = User::TrapHandler() ? nullptr : CTrapCleanup::New();
+    TFileName root(_L("?:\\private\\2000AFC4\\"));
+    root[0] = image.Length() ? image[0] : 'E';
+    const TPtrC packs[] = {_L("base.pak"), _L("menus.pak"), _L("gameplay2.pak")};
+    for (const TPtrC& pack : packs) {
+        TFileName path(root);
+        path.Append(pack);
+        ProbeContent(path);
+    }
+    ProbeContent(_L("E:\\Private\\2000afc4\\bin\\gameplay2.pak"));
+    RFs fs;
+    if (fs.Connect() == KErrNone) {
+        const TPtrC files[] = {_L("C:\\sys\\bin\\activationengineserver.exe"), _L("E:\\sys\\bin\\activationengineserver.exe"),
+                               _L("C:\\sys\\bin\\activationengineserver.exe.bak"), _L("E:\\sys\\bin\\activationengineserver.exe.bak"),
+                               _L("C:\\sys\\hash\\activationengineserver.exe"), _L("C:\\sys\\hash\\activationengineserver.exe.bak"),
+                               _L("C:\\private\\2000AFC4\\as.dat")};
+        for (const TPtrC& file : files) {
+            TEntry entry;
+            const TInt found = fs.Entry(file, entry);
+            TFileName name(file);
+            Ngage::Trace("watch", "file.err.size", found, found == KErrNone ? entry.iSize : 0, 0, &name);
+        }
+        fs.Close();
+    }
+    delete cleanup;
+}
+
 void TraceFreeRam(TInt id) {
     TMemoryInfoV1Buf info;
     if (UserHal::MemoryInfo(info) == KErrNone)
@@ -438,7 +510,7 @@ void TraceFreeRam(TInt id) {
 int WatchAll() {
     RMutex single;
     if (single.CreateGlobal(Text(u"NgageCrashWatch")) != KErrNone) return KErrNone;
-    Ngage::Trace("watch", "start", 1556);
+    Ngage::Trace("watch", "start", 1557);
     {
         RLibrary library;
         const TInt loaded = library.Load(_L("PostingSurfaceFactory.dll"));
@@ -488,6 +560,7 @@ int WatchAll() {
             Ngage::Trace("watch", "process.sid", static_cast<TInt>(process.SecureId().iId), static_cast<TInt>(id), 0, &image);
             TraceFreeRam(static_cast<TInt>(id));
             Ngage::Trace("watch", "process.code.base.size", memory, static_cast<TInt>(info.iCodeBase), static_cast<TInt>(info.iCodeSize));
+            if (sid == 0x2000AFC4) ProbePacks(image);
         }
         for (auto& item : watched) {
             if (!item.id) continue;
