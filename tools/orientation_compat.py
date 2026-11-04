@@ -10,16 +10,15 @@ CONFIG_SHA256 = '8a2cdba6e60bad0f8b61148550de84e1b2df4659dbb627608a61856271c658e
 ORIENTATION_SHA256 = 'b69f30bce5bb5a5156093fa54beaaf1ca94783ef86e9060872a328c46d80818e'
 BACKBUFFER_SHA256 = 'e879bd5a15ba145c4007f2eafb2bc1e9c1a519d3b39082e6319609d462b1741d'
 CODE_BASE = 0x8000
-# A missing WS screen mode for the requested orientation no longer leaves; the game keeps
-# the landscape screen mode and only its picture is portrait.
-MODE_LEAVE = 0x832a, bytes.fromhex('300000f034e9'), bytes.fromhex('b31d0ed03000')
+# Every orientation request becomes CAknAppUiBase::SetOrientationL(landscape). The configured
+# WS mode indexes are device-specific: the X7's second mode is portrait.
+LANDSCAPE = 0x8244, bytes.fromhex('e0690526f6430028'), bytes.fromhex('00f098e9406a10e0')
 # Portrait backbuffers keep their own width and height instead of being swapped to landscape.
 DIMENSION_SWAP = 0xd3e4, struct.pack('<I', 0x1a000010), struct.pack('<I', 0xea000020)
 DISPLAY = '/hardware/graphics/displays/0'
 ORIENTATIONS = DISPLAY + '/ngageorientations'
 BACKBUFFERS = '/hardware/graphics/backbuffer/configurations/'
 USER_OPTIONS = 3
-WS_MODES = '0x04, 0x02'
 PORTRAIT = 0
 
 
@@ -128,7 +127,6 @@ def patch_config(raw):
             display['nativeheight'][3], display['nativewidth'][3]
     options = config[ORIENTATIONS]
     options['useroptions'][3] = USER_OPTIONS
-    options['wsinimodes'][3] = WS_MODES
     scaled = 0
     for path, values in config.items():
         if not path.startswith(BACKBUFFERS) or values['orientationtype'][3] != PORTRAIT:
@@ -162,7 +160,7 @@ def adapt_orientation(package):
     package = replace_images(package, CONFIG_SHA256, patch_config, '20001079.cre',
                              variants=True)
     package = replace_images(package, ORIENTATION_SHA256,
-                             lambda raw: patch_code(raw, ORIENTATION_SHA256, MODE_LEAVE),
+                             lambda raw: patch_code(raw, ORIENTATION_SHA256, LANDSCAPE),
                              'ngigameorientation.dll', copies=1)
     return replace_images(package, BACKBUFFER_SHA256,
                           lambda raw: patch_code(raw, BACKBUFFER_SHA256, DIMENSION_SWAP),

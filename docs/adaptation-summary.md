@@ -44,16 +44,15 @@ Portrait games keep the phone in landscape. Only the picture is portrait,
 unrotated, scaled to the full screen height and centred; for example, 240×320
 is shown at 270×360 from x=185 on a 640×360 screen. The installer rewrites the
 N97 display configuration selected on Symbian^3. That configuration enables the
-portrait option and maps both orientations to landscape window-server modes, and
-it scales portrait backbuffers to the screen height. It also reports the native
+portrait option and scales portrait backbuffers to the screen height. It also reports the native
 display as 240×320, matching its portrait orientation at angle 0; games such as
 Reset Generation lay out for the native size and otherwise draw only the top 240
 lines of a 240×320 buffer. Two pinned NGI instructions
-are changed. `ngigameorientation.dll` keeps the current landscape screen mode
-when no portrait mode exists, and `ngibackbuffer.dll` keeps portrait buffer
-dimensions instead of swapping them. The compatibility DLL hides its window only
-after a short delay. Hiding at once would change the game's DSA region and
-restart the surface in a loop.
+are changed. `ngigameorientation.dll` requests the landscape app UI
+orientation for every game orientation instead of selecting a window-server
+screen mode by configured index, which is device-specific (the X7's second mode
+is portrait), and `ngibackbuffer.dll` keeps portrait buffer dimensions instead
+of swapping them.
 
 Translucent square controls provide a five-way pad on the left, R/A/B/L from top
 to bottom on the right, and hide/show at the upper left. Input handling tracks
