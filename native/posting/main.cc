@@ -1,6 +1,8 @@
 // Native compatibility implementation of Nokia's public Display Posting API.
 #include "Posting_Surface.h"
 #include "Posting_Surface_Factory.h"
+#include <bitdev.h>
+#include <bitstd.h>
 #include <fbs.h>
 #include <w32std.h>
 #include "../common/touch_service.h"
@@ -113,17 +115,17 @@ public:
     void Close() { iChunk.Close(); iBuffer = nullptr; }
 };
 
-const TInt KHideDelay = 250000;
-
+// Frames go to the window server's DSA buffer, which it composes only inside the
+// caller's running DSA region. A window of our own would empty that region.
 class Surface final : public CPostingSurface {
     RWsSession ws_;
     CWsScreenDevice* screen_ = nullptr;
+    CFbsScreenDevice* direct_ = nullptr;
+    CFbsBitGc* gc_ = nullptr;
     CFbsBitmap bitmap_;
-    CWindowGc* gc_ = nullptr;
-    RWindowGroup* group_ = nullptr;
-    RWindow* window_ = nullptr;
-    CPeriodic* hide_ = nullptr;
     Buffer buffer_;
+    RRegion clip_;
+    bool clip_set_ = false;
     TSize source_{0, 0};
     TPostingFormat format_ = EFormatInvalidValue;
     TPostingParams destination_;
@@ -131,36 +133,27 @@ class Surface final : public CPostingSurface {
     bool fbs_connected_ = false;
     TInt x_map_[640];
     TUint frames_ = 0;
+    TUint skips_[8] = {};
+    void Skip(TInt reason, TInt detail = 0) {
+        const TUint n = ++skips_[reason];
+        if (n <= 5 || (n & 255) == 0) Ngage::Trace("posting", "post.skip.reason.n", reason, n, detail);
+    }
 public:
     ~Surface() override {
         Ngage::Trace("posting", "surface.destruct", frames_);
-        delete hide_; hide_ = nullptr;
         Destroy();
-        if (window_) window_->Close();
-        if (group_) group_->Close();
-        delete window_; delete group_; delete gc_; delete screen_;
+        ReleaseDirect();
+        clip_.Close();
+        delete screen_;
         if (fbs_connected_) RFbsSession::Disconnect();
         if (connected_) ws_.Close();
     }
     void ConstructL(TInt screen) {
-        Ngage::Trace("posting", "construct.enter", screen);
         if (screen != 0) User::Leave(KErrNotSupported);
         User::LeaveIfError(ws_.Connect()); connected_ = true;
         screen_ = new(ELeave) CWsScreenDevice(ws_);
         User::LeaveIfError(screen_->Construct(screen));
-        screen_->SetAppScreenMode(screen_->CurrentScreenMode());
         User::LeaveIfError(RFbsSession::Connect()); fbs_connected_ = true;
-        User::LeaveIfError(screen_->CreateContext(gc_));
-        group_ = new(ELeave) RWindowGroup(ws_);
-        User::LeaveIfError(group_->Construct(1, EFalse));
-        group_->EnableReceiptOfFocus(EFalse);
-        group_->SetOrdinalPosition(0, 0);
-        window_ = new(ELeave) RWindow(ws_);
-        User::LeaveIfError(window_->Construct(*group_, 2));
-        window_->SetBackgroundColor(TRgb(0, 0, 0));
-        window_->Activate();
-        if (CActiveScheduler::Current()) hide_ = CPeriodic::NewL(CActive::EPriorityStandard);
-        Ngage::Trace("posting", "construct.done", hide_ != nullptr);
     }
     TBool FormatSupported(TPostingFormat format) override {
         return format == ERgb16bit565Le || format == ERgb24bit888Le || format == ERgb32bit888Le;
@@ -184,31 +177,37 @@ public:
             User::Leave(KErrArgument);
         if (source.iBufferType != EChunkBuffer && source.iBufferType != EStandardBuffer)
             User::Leave(KErrNotSupported);
-        if (hide_) hide_->Cancel();
-        Release(); source_ = source.iSourceImageSize; format_ = source.iPostingFormat;
+        Release(); ReleaseDirect();
+        source_ = source.iSourceImageSize; format_ = source.iPostingFormat;
         const TInt bytes = format_ == ERgb16bit565Le ? 2 : format_ == ERgb24bit888Le ? 3 : 4;
         buffer_.CreateL(source_, bytes);
         User::LeaveIfError(SetPostingParameters(destination));
-        screen_->SetAppScreenMode(screen_->CurrentScreenMode());
-        const TSize size = screen_->SizeInPixels();
-        User::LeaveIfError(bitmap_.Create(size, EColor16MU));
-        window_->SetExtent(TPoint(0, 0), size);
-        window_->SetVisible(ETrue);
-        ws_.Finish();
-        Ngage::Trace("posting", "initialize.done", size.iWidth, size.iHeight, reinterpret_cast<TInt>(buffer_.GetBuffer()));
+        // Matches CDirectScreenAccess: the DSA buffer follows the current app orientation.
+        Ngage::Trace("posting", "ws.size.mode.dispmode", screen_->SizeInPixels().iWidth, screen_->SizeInPixels().iHeight, screen_->DisplayMode());
+        Ngage::Trace("posting", "direct.new.enter", screen_->CurrentScreenMode());
+        direct_ = CFbsScreenDevice::NewL(screen_->GetScreenNumber(), screen_->DisplayMode());
+        Ngage::Trace("posting", "direct.new.done", reinterpret_cast<TInt>(direct_));
+        direct_->SetAutoUpdate(EFalse);
+        TPixelsAndRotation rotation;
+        screen_->GetDefaultScreenSizeAndRotation(rotation);
+        const TBool oriented = direct_->SetDeviceOrientation(static_cast<TDeviceOrientation>(1 << rotation.iRotation));
+        Ngage::Trace("posting", "direct.rotation.ok.avail", rotation.iRotation, oriented, direct_->DeviceOrientationsAvailable());
+        Ngage::Trace("posting", "direct.size.orient", direct_->SizeInPixels().iWidth, direct_->SizeInPixels().iHeight, direct_->DeviceOrientation());
+        Ngage::Trace("posting", "default.size", rotation.iPixelSize.iWidth, rotation.iPixelSize.iHeight);
+        User::LeaveIfError(direct_->CreateContext(gc_));
+        User::LeaveIfError(bitmap_.Create(direct_->SizeInPixels(), EColor16MU));
+        bitmap_.BeginDataAccess();
+        auto* pixels = reinterpret_cast<TUint32*>(bitmap_.DataAddress());
+        const TInt count = bitmap_.DataStride() / 4 * bitmap_.SizeInPixels().iHeight;
+        for (TInt i = 0; i < count; ++i) pixels[i] = 0xff000000u;
+        bitmap_.EndDataAccess();
+        Ngage::Trace("posting", "initialize.done", bitmap_.SizeInPixels().iWidth, bitmap_.SizeInPixels().iHeight, reinterpret_cast<TInt>(buffer_.GetBuffer()));
         LogModules("initialize");
     }
     void Destroy(TRequestStatus& status) override {
         Destroy(); TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
     }
-    // Hiding the window changes the caller's DSA region, which aborts its DSA and
-    // re-initialises the surface; defer it so an immediate InitializeL keeps it shown.
-    void Destroy() override {
-        Ngage::Trace("posting", "surface.destroy", frames_);
-        Release();
-        if (!hide_) { Hide(this); return; }
-        if (!hide_->IsActive()) hide_->Start(KHideDelay, KHideDelay, TCallBack(Hide, this));
-    }
+    void Destroy() override { Ngage::Trace("posting", "surface.destroy", frames_); Release(); }
     TInt WaitForNextBuffer(TRequestStatus& status) override {
         status = KRequestPending;
         TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
@@ -224,14 +223,19 @@ public:
             Ngage::Trace("posting", "post", frames_, reinterpret_cast<TInt>(buffer), buffer ? reinterpret_cast<TInt>(buffer->GetBuffer()) : 0);
         if (frames_ == 1) LogModules("first.post");
         TThreadId focused;
-        if (ws_.GetWindowGroupClientThreadId(ws_.GetFocusWindowGroup(), focused) != KErrNone)
-            return KErrNone;
+        if (ws_.GetWindowGroupClientThreadId(ws_.GetFocusWindowGroup(), focused) != KErrNone) {
+            Skip(0); return KErrNone;
+        }
         RThread thread;
-        if (thread.Open(focused) != KErrNone) return KErrNone;
+        if (thread.Open(focused) != KErrNone) { Skip(1); return KErrNone; }
         const TBool foreground = thread.SecureId() == RProcess().SecureId();
+        const TInt focused_sid = thread.SecureId().iId;
         thread.Close();
-        if (!foreground) return KErrNone;
-        if (!buffer || buffer->GetSize() != source_ || !buffer->GetBuffer()) return KErrArgument;
+        if (!foreground) { Skip(2, focused_sid); return KErrNone; }
+        if (!buffer || buffer->GetSize() != source_ || !buffer->GetBuffer()) {
+            Skip(3, buffer ? buffer->GetSize().iWidth : -1); return KErrArgument;
+        }
+        if (!direct_ || !gc_) { Skip(4); return KErrNotReady; }
 
         TAcceleratedBitmapInfo bitmap;
         bitmap.iAddress = reinterpret_cast<TUint8*>(bitmap_.DataAddress());
@@ -291,14 +295,22 @@ public:
             }
         }
         bitmap_.EndDataAccess();
-        group_->SetOrdinalPosition(0, 0);
-        gc_->Activate(*window_);
-        window_->Invalidate();
-        window_->BeginRedraw();
-        gc_->BitBlt(TPoint(0, 0), &bitmap_);
-        window_->EndRedraw();
-        gc_->Deactivate();
-        ws_.Finish();
+        RRegion update;
+        update.AddRect(TRect(TPoint(0, 0), bitmap.iSize));
+        if (clip_set_) update.Intersect(clip_);
+        if (frames_ <= 3 || (frames_ & 255) == 0) {
+            const TRect bounds = update.BoundingRect();
+            Ngage::Trace("posting", "post.update.count.set", update.Count(), clip_set_, update.CheckError());
+            Ngage::Trace("posting", "post.update.tl", bounds.iTl.iX, bounds.iTl.iY);
+            Ngage::Trace("posting", "post.update.br", bounds.iBr.iX, bounds.iBr.iY);
+        }
+        if (!update.CheckError() && !update.IsEmpty()) {
+            gc_->SetClippingRegion(update);
+            gc_->BitBlt(TPoint(0, 0), &bitmap_);
+            gc_->CancelClippingRegion();
+            direct_->Update(update);
+        }
+        update.Close();
         return KErrNone;
     }
     TInt SetPostingParameters(const TPostingParams& params) override {
@@ -306,16 +318,16 @@ public:
         if (params.iMirror || params.iRotation != ENoRotation) return KErrNotSupported;
         destination_ = params; return KErrNone;
     }
-    static TInt Hide(TAny* self) {
-        auto* surface = static_cast<Surface*>(self);
-        if (surface->hide_) surface->hide_->Cancel();
-        if (surface->window_) { surface->window_->SetVisible(EFalse); surface->ws_.Flush(); }
-        return KErrNone;
-    }
     void Release() { buffer_.Close(); bitmap_.Reset(); }
-    TInt SetClipRegion(const TRegion&) override {
-        // WS clips this surface window; the caller's DSA region excludes it.
-        return KErrNotSupported;
+    void ReleaseDirect() { delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr; }
+    TInt SetClipRegion(const TRegion& region) override {
+        const TRect bounds = region.BoundingRect();
+        Ngage::Trace("posting", "clip.count.frames", region.Count(), frames_);
+        Ngage::Trace("posting", "clip.tl", bounds.iTl.iX, bounds.iTl.iY);
+        Ngage::Trace("posting", "clip.br", bounds.iBr.iX, bounds.iBr.iY);
+        clip_.Copy(region);
+        clip_set_ = true;
+        return clip_.CheckError() ? KErrNoMemory : KErrNone;
     }
 };}
 
@@ -328,7 +340,7 @@ CPostingSurface* CPostingSurfaceFactory::NewPostingSurfaceL(TInt display) {
 }
 __attribute__((visibility("default")))
 CPostingSurfaceFactory* NewSurfaceManagerFactoryL() {
-    Ngage::Trace("posting", "factory.entry", 1551, reinterpret_cast<TInt>(&NewSurfaceManagerFactoryL));
+    Ngage::Trace("posting", "factory.entry", 1552, reinterpret_cast<TInt>(&NewSurfaceManagerFactoryL));
     LogModules("factory");
     StartWatcher();
     StartControls();

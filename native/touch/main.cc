@@ -389,9 +389,13 @@ void ReportContext(RThread& thread, TUint id) {
 int WatchAll() {
     RMutex single;
     if (single.CreateGlobal(Text(u"NgageCrashWatch")) != KErrNone) return KErrNone;
-    Ngage::Trace("watch", "start", 1551);
+    Ngage::Trace("watch", "start", 1552);
     std::array<Watched, 24> watched;
     const TUint self = static_cast<TUint>(RProcess().Id().Id());
+    // Processes running before the watcher are baseline; only later ones get slots.
+    std::array<TUint, 128> baseline{};
+    TInt baseline_count = 0;
+    bool first = true;
     for (;;) {
         TFindProcess find(_L("*"));
         TFullName name;
@@ -403,6 +407,11 @@ int WatchAll() {
             bool known = id == self || process.ExitType() != EExitPending ||
                          (image.Length() > 0 && (image[0] == 'Z' || image[0] == 'z'));
             for (auto& item : watched) if (item.id == id) known = true;
+            for (TInt i = 0; i < baseline_count; ++i) if (baseline[i] == id) known = true;
+            if (first) {
+                if (baseline_count < static_cast<TInt>(baseline.size())) baseline[baseline_count++] = id;
+                process.Close(); continue;
+            }
             Watched* slot = nullptr;
             if (!known) for (auto& item : watched) if (!item.id) { slot = &item; break; }
             if (!slot) { process.Close(); continue; }
@@ -447,6 +456,8 @@ int WatchAll() {
                 item.process.Close(); item.id = 0; item.thread_count = 0;
             }
         }
+        if (first) Ngage::Trace("watch", "baseline", baseline_count);
+        first = false;
         User::After(200000);
     }
 }

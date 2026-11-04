@@ -17,10 +17,13 @@ called again on the same surface.
 
 Hooked has passed emulator gameplay checks and user validation on Nokia 808 Belle FP2.
 
-Presentation uses a non-focusable window and a software RGB bitmap. The public
-API's optional DSA clipping method returns `KErrNotSupported`: the window server
-clips and composes the presentation window, including translucent controls.
-No direct framebuffer access or emulator-specific library replacement is used.
+Presentation converts frames into a software RGB bitmap and blits it into the
+window server's DSA buffer through `CFbsScreenDevice`, as `CDirectScreenAccess`
+does. The window server shows that buffer only inside the game's running DSA
+region, so overlapping windows such as the touch controls stay on top. The
+region passed to `SetClipRegion` further clips each frame. No separate
+presentation window is created: it would cover the game window and empty its
+DSA region. No emulator-specific library replacement is used.
 The first 16 original factory/buffer exports retain their ordinal ABI.
 
 The factory starts the background touch-control service without bringing
