@@ -389,7 +389,15 @@ void ReportContext(RThread& thread, TUint id) {
 int WatchAll() {
     RMutex single;
     if (single.CreateGlobal(Text(u"NgageCrashWatch")) != KErrNone) return KErrNone;
-    Ngage::Trace("watch", "start", 1552);
+    Ngage::Trace("watch", "start", 1553);
+    {
+        RLibrary library;
+        const TInt loaded = library.Load(_L("PostingSurfaceFactory.dll"));
+        TFileName file;
+        if (loaded == KErrNone) file = library.FileName();
+        Ngage::Trace("watch", "posting.load", loaded, loaded == KErrNone ? reinterpret_cast<TInt>(library.Lookup(1)) : 0, 0, &file);
+        if (loaded == KErrNone) library.Close();
+    }
     std::array<Watched, 24> watched;
     const TUint self = static_cast<TUint>(RProcess().Id().Id());
     // Processes running before the watcher are baseline; only later ones get slots.
@@ -409,12 +417,18 @@ int WatchAll() {
             for (auto& item : watched) if (item.id == id) known = true;
             for (TInt i = 0; i < baseline_count; ++i) if (baseline[i] == id) known = true;
             if (first) {
-                if (baseline_count < static_cast<TInt>(baseline.size())) baseline[baseline_count++] = id;
+                if (!known && baseline_count < static_cast<TInt>(baseline.size())) baseline[baseline_count++] = id;
                 process.Close(); continue;
             }
             Watched* slot = nullptr;
             if (!known) for (auto& item : watched) if (!item.id) { slot = &item; break; }
-            if (!slot) { process.Close(); continue; }
+            if (!slot) {
+                if (!known) {
+                    Ngage::Trace("watch", "process.unwatched", static_cast<TInt>(process.SecureId().iId), static_cast<TInt>(id), 0, &image);
+                    if (baseline_count < static_cast<TInt>(baseline.size())) baseline[baseline_count++] = id;
+                }
+                process.Close(); continue;
+            }
             slot->process = process; slot->id = id; slot->thread_count = 0;
             TModuleMemoryInfo info;
             const TInt memory = process.GetMemoryInfo(info);
