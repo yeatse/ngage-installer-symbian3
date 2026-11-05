@@ -85,6 +85,26 @@ void ProbeLibrary(Log &log, const Library &lib) {
     library.Close();
 }
 
+_LIT(KBak, ".bak");
+
+void LogHash(Log &log, RFs &fs, const TDesC &aPath) {
+    TBuf8<128> path8;
+    Narrow(path8, aPath);
+    RFile hash;
+    TInt r = hash.Open(fs, aPath, EFileRead | EFileShareReadersOnly);
+    if (r != KErrNone) {
+        LOG_LINE(log, _L8("hash %S r=%d"), &path8, r);
+        return;
+    }
+    TBuf8<64> bytes;
+    r = hash.Read(bytes);
+    hash.Close();
+    TBuf8<130> hex;
+    for (TInt i = 0; i < bytes.Length(); ++i)
+        hex.AppendFormat(_L8("%02x"), bytes[i]);
+    LOG_LINE(log, _L8("hash %S r=%d %S"), &path8, r, &hex);
+}
+
 void ProbeFiles(Log &log, RFs &fs) {
     static const TText kDrives[] = { 'C', 'E', 'F' };
     for (TUint f = 0; f < sizeof(kGameFiles) / sizeof(kGameFiles[0]); ++f) {
@@ -101,20 +121,79 @@ void ProbeFiles(Log &log, RFs &fs) {
         }
         TFileName hashPath;
         hashPath.Format(_L("C:\\sys\\hash\\%S"), &file);
-        RFile hash;
-        TInt r = hash.Open(fs, hashPath, EFileRead | EFileShareReadersOnly);
-        if (r != KErrNone) {
-            LOG_LINE(log, _L8("hash %S r=%d"), &file8, r);
-            continue;
-        }
-        TBuf8<64> bytes;
-        r = hash.Read(bytes);
-        hash.Close();
-        TBuf8<130> hex;
-        for (TInt i = 0; i < bytes.Length(); ++i)
-            hex.AppendFormat(_L8("%02x"), bytes[i]);
-        LOG_LINE(log, _L8("hash %S r=%d %S"), &file8, r, &hex);
+        LogHash(log, fs, hashPath);
     }
+}
+
+void LogEntry(Log &log, RFs &fs, const TDesC &aPath) {
+    TBuf8<128> path8;
+    Narrow(path8, aPath);
+    TEntry entry;
+    TInt r = fs.Entry(aPath, entry);
+    LOG_LINE(log, _L8("entry %S r=%d size=%d"), &path8, r, r == KErrNone ? entry.iSize : -1);
+}
+
+void ProbeProcesses(Log &log, const TDesC &aPattern) {
+    TBuf8<64> pattern8;
+    Narrow(pattern8, aPattern);
+    TFindProcess find(aPattern);
+    TFullName name;
+    TInt count = 0;
+    while (find.Next(name) == KErrNone) {
+        TBuf8<128> name8;
+        Narrow(name8, name);
+        RProcess process;
+        TInt exitType = -1;
+        if (process.Open(find) == KErrNone) {
+            exitType = process.ExitType();
+            process.Close();
+        }
+        LOG_LINE(log, _L8("process %S exit-type=%d"), &name8, exitType);
+        ++count;
+    }
+    LOG_LINE(log, _L8("processes %S count=%d"), &pattern8, count);
+}
+
+// Create without resuming: exercises the loader (capabilities, hash) only.
+void ProbeCreate(Log &log, const TDesC &aName) {
+    TBuf8<64> name8;
+    Narrow(name8, aName);
+    RProcess process;
+    TInt r = process.Create(aName, KNullDesC);
+    if (r != KErrNone) {
+        LOG_LINE(log, _L8("create %S r=%d"), &name8, r);
+        return;
+    }
+    TBuf8<128> path8;
+    Narrow(path8, process.FileName());
+    LOG_LINE(log, _L8("create %S r=0 file=%S"), &name8, &path8);
+    process.Kill(KErrNone);
+    process.Close();
+}
+
+void ProbeActivation(Log &log, RFs &fs) {
+    static const TText kDrives[] = { 'C', 'E', 'F' };
+    for (TUint d = 0; d < sizeof(kDrives) / sizeof(kDrives[0]); ++d) {
+        TInt drive;
+        TVolumeInfo volume;
+        if (fs.CharToDrive(kDrives[d], drive) == KErrNone && fs.Volume(volume, drive) == KErrNone)
+            LOG_LINE(log, _L8("drive %c type=%d drive-att=%x media-att=%x"), kDrives[d],
+                     volume.iDrive.iType, volume.iDrive.iDriveAtt, volume.iDrive.iMediaAtt);
+        for (TInt bak = 0; bak < 2; ++bak) {
+            TFileName path;
+            path.Format(_L("%c:\\sys\\bin\\activationengineserver.exe%S"), kDrives[d], bak ? &KBak() : &KNullDesC());
+            LogEntry(log, fs, path);
+        }
+    }
+    LogHash(log, fs, _L("C:\\sys\\hash\\activationengineserver.exe"));
+    LogHash(log, fs, _L("C:\\sys\\hash\\activationengineserver.exe.bak"));
+    LogEntry(log, fs, _L("C:\\Private\\2000AFC4\\as.dat"));
+    LogEntry(log, fs, _L("E:\\Private\\2000afc4\\bin\\gameplay2.pak"));
+    ProbeProcesses(log, _L("activationengine*"));
+    ProbeProcesses(log, _L("ResetGeneration*"));
+    ProbeProcesses(log, _L("AS_2000AFC4*"));
+    ProbeCreate(log, _L("activationengineserver.exe"));
+    ProbeCreate(log, _L("AS_2000AFC4.exe"));
 }
 
 TInt Run() {
@@ -123,17 +202,27 @@ TInt Run() {
     if (r != KErrNone) return r;
     fs.MkDirAll(_L("C:\\Data\\"));
     RFile file;
-    r = file.Replace(fs, _L("C:\\Data\\rg_probe.txt"), EFileWrite | EFileShareExclusive);
+    r = file.Open(fs, _L("C:\\Data\\rg_probe.txt"), EFileWrite | EFileShareExclusive);
+    if (r == KErrNotFound)
+        r = file.Create(fs, _L("C:\\Data\\rg_probe.txt"), EFileWrite | EFileShareExclusive);
+    TInt end = 0;
+    if (r == KErrNone)
+        r = file.Seek(ESeekEnd, end);
     if (r != KErrNone) {
         fs.Close();
         return r;
     }
     Log log(file);
-    LOG_LINE(log, _L8("rg-load-probe 1"));
+    TTime now;
+    now.HomeTime();
+    TDateTime t = now.DateTime();
+    LOG_LINE(log, _L8("rg-load-probe 2 %04d-%02d-%02d %02d:%02d:%02d"), t.Year(), t.Month() + 1, t.Day() + 1,
+             t.Hour(), t.Minute(), t.Second());
     ProbeEuser(log);
     for (TUint i = 0; i < sizeof(kLibraries) / sizeof(kLibraries[0]); ++i)
         ProbeLibrary(log, kLibraries[i]);
     ProbeFiles(log, fs);
+    ProbeActivation(log, fs);
     LOG_LINE(log, _L8("done"));
     file.Close();
     fs.Close();
