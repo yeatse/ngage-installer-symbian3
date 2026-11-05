@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.28)
+project(rg_load_probe LANGUAGES CXX ASM)
+include(SymbianApp)
+symbian_add_executable(rg_load_probe main.cc)
+target_include_directories(rg_load_probe SYSTEM PRIVATE "${SYMBIAN_SDK_PREFIX}/include/native")
+target_link_libraries(rg_load_probe PRIVATE Symbian::Stackless Symbian::EUser Symbian::FileServer)
+target_link_options(rg_load_probe PRIVATE --gc-sections)
+symbian_publish_executable(rg_load_probe UID3 0xe0000998)

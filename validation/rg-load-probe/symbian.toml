@@ -1,0 +1,17 @@
+[project]
+architecture = "armv6"
+name = "rg_load_probe"
+kind = "e32-import-experiment"
+cmake_preset = "symbian-pic"
+uid3 = 0xe0000998
+
+[package]
+uid = 0xe0000999
+name = "RG load probe"
+vendor = "ngage-installer-symbian3"
+executable_name = "rg_load_probe.exe"
+version = [1, 0, 0]
+
+[application]
+caption = "RG load probe"
+short_caption = "RG probe"
