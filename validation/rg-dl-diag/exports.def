@@ -1,0 +1,5 @@
+EXPORTS
+ DiagDlclose @ 1 NONAME
+ DiagUnused @ 2 NONAME
+ DiagDlopen @ 3 NONAME
+ DiagDlsym @ 4 NONAME
