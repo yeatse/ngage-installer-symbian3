@@ -196,6 +196,51 @@ void ProbeActivation(Log &log, RFs &fs) {
     ProbeCreate(log, _L("AS_2000AFC4.exe"));
 }
 
+typedef void *(*DlOpen)(const char *, int);
+typedef void *(*DlSym)(void *, const char *);
+typedef char *(*DlError)();
+typedef TInt (*CreateInstance)(TInt, void **);
+
+// Replays the game's file-manager creation: RG_dl's dlopen/dlsym, then
+// RG_fileaccess ordinal 1 with interface 0x1000301, as at exe 0xeba58.
+void ProbeDl(Log &log) {
+    RLibrary rgdl, libdl;
+    TInt r = rgdl.Load(_L("RG_dl.dll"));
+    TInt r2 = libdl.Load(_L("libdl.dll"));
+    LOG_LINE(log, _L8("dl load RG_dl=%d libdl=%d"), r, r2);
+    if (r != KErrNone || r2 != KErrNone) return;
+    DlOpen dlopen = (DlOpen)rgdl.Lookup(3);
+    DlSym dlsym = (DlSym)rgdl.Lookup(4);
+    DlError dlerror = (DlError)libdl.Lookup(2);
+    TBuf8<128> error;
+
+    void *access = dlopen("ngifileaccess.dll", 2);
+    error.Copy(TPtrC8((const TUint8 *)(access ? "" : dlerror())));
+    LOG_LINE(log, _L8("dlopen ngifileaccess.dll handle=%08x error=%S"), (TUint)access, &error);
+    if (access) {
+        CreateInstance create = (CreateInstance)dlsym(access, "1");
+        LOG_LINE(log, _L8("dlsym fileaccess 1 addr=%08x"), (TUint)create);
+        if (create) {
+            void *object = NULL;
+            TInt result = create(0x1000301, &object);
+            LOG_LINE(log, _L8("fileaccess create(0x1000301) r=%d object=%08x"), result, (TUint)object);
+        }
+    }
+
+    void *factory = dlopen("ngifilemanagerfactory_2000AFC4.dll", 2);
+    error.Copy(TPtrC8((const TUint8 *)(factory ? "" : dlerror())));
+    LOG_LINE(log, _L8("dlopen factory handle=%08x error=%S"), (TUint)factory, &error);
+    if (factory) {
+        for (TInt i = 1; i <= 6; ++i) {
+            TBuf8<4> name;
+            name.Format(_L8("%d"), i);
+            name.ZeroTerminate();
+            LOG_LINE(log, _L8("dlsym factory %d addr=%08x"), i, (TUint)dlsym(factory, (const char *)name.Ptr()));
+        }
+    }
+    // Handles stay open: the game keeps both libraries loaded for its lifetime.
+}
+
 TInt Run() {
     RFs fs;
     TInt r = fs.Connect();
@@ -216,13 +261,14 @@ TInt Run() {
     TTime now;
     now.HomeTime();
     TDateTime t = now.DateTime();
-    LOG_LINE(log, _L8("rg-load-probe 2 %04d-%02d-%02d %02d:%02d:%02d"), t.Year(), t.Month() + 1, t.Day() + 1,
+    LOG_LINE(log, _L8("rg-load-probe 3 %04d-%02d-%02d %02d:%02d:%02d"), t.Year(), t.Month() + 1, t.Day() + 1,
              t.Hour(), t.Minute(), t.Second());
     ProbeEuser(log);
     for (TUint i = 0; i < sizeof(kLibraries) / sizeof(kLibraries[0]); ++i)
         ProbeLibrary(log, kLibraries[i]);
     ProbeFiles(log, fs);
     ProbeActivation(log, fs);
+    ProbeDl(log);
     LOG_LINE(log, _L8("done"));
     file.Close();
     fs.Close();

@@ -28,9 +28,17 @@ Build with `symbian-platform` 0.3.0 as for the other probes, then patch the
 executable capabilities to `0xff5bc` before packaging. Install the SIS, open
 "RG load probe" from the menu, then read the log.
 
+Finally it replays the game's creation step: `RG_dl.dll`'s `dlopen`/`dlsym`
+(ordinals 3/4, with libdl's `dlerror`) open both libraries, then
+`RG_fileaccess.dll` ordinal 1 is called with interface `0x1000301`, as the exe
+does at `0xeba58`. The factory's six ordinals are resolved but not called. On the
+X7 emulator profile this returns 0 with an object, also outside the game process.
+
 On the X7 emulator profile every library loads and every ordinal resolves. The
 808 (game on E:) gave the same load, ordinal and digest results, so the failing
-step is inside `RG_fileaccess.dll` ordinal 1 rather than `dlopen`.
+step is not `RLibrary::Load`. The 808 also kept the original activation server
+and digest after a crashed launch, so `AS_2000AFC4.exe` had not swapped it
+before the crash.
 
 The SIS installs `RG_fileaccess.dll` conditionally: devices with
 `z:\system\install\series60v3.1.sis` (S60 3.1/3.2, e.g. 5320) get a build that
