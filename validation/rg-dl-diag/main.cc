@@ -116,6 +116,7 @@ const TInt KTlsKey = 0xe00009a0;
 struct Shadow {
     TInt depth;
     TInt logged;
+    TInt libraryDumps;
     TUint lr[KShadowDepth];
     TInt ordinal[KShadowDepth];  // factory ordinal, or 100 + vtable slot
     TUint r2[KShadowDepth];
@@ -281,6 +282,23 @@ extern "C" __attribute__((visibility("default"))) TAny* FactoryResolve(TInt ordi
     line.Commit();
     if (ordinal == 1 || ordinal == 5)
         for (TInt i = 0; i < 4; ++i) DumpPointer(ordinal, i, args[i]);
+    if (ordinal == 1 && shadow->libraryDumps < 3) {
+        ++shadow->libraryDumps;
+        // The factory enumerates loaded libraries (TFindLibrary); record what it sees.
+        TFindLibrary find(_L("*"));
+        TFullName name;
+        TInt count = 0;
+        while (find.Next(name) == KErrNone) {
+            Line entry;
+            TBuf8<200> name8;
+            name8.Copy(name.Left(200));
+            entry.AppendFormat(_L8("  lib %d %S"), count++, &name8);
+            entry.Commit();
+        }
+        Line total;
+        total.AppendFormat(_L8("  libs total=%d"), count);
+        total.Commit();
+    }
     return Export(KFactory, ordinal);
 }
 
