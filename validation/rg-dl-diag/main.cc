@@ -77,6 +77,9 @@ TAny* Export(const TDesC& name, TInt ordinal) {
     return address;
 }
 
+}  // namespace
+void WrapVtable(TAny* object, TInt slots);
+namespace {
 typedef TInt (*CreateInstance)(TInt, TAny**);
 
 TInt WrappedAccessCreate(TInt id, TAny** out) {
@@ -90,6 +93,17 @@ TInt WrappedAccessCreate(TInt id, TAny** out) {
     const TInt result = real ? real(id, out) : KErrNotFound;
     Line line;
     line.AppendFormat(_L8("fileaccess.1 return r=%d object=%08x"), result, out ? (TUint)*out : 0);
+    if (result == KErrNone && out && *out && real) {
+        // RG_fileaccess layout: ordinal 1 at code+0x4d9, primary vtable at code+0x4a9c.
+        const TUint code = reinterpret_cast<TUint>(real) - 0x4d9;
+        TUint* object = static_cast<TUint*>(*out);
+        line.AppendFormat(_L8(" vptr=%x vptr2=%x"), object[0] - code, object[1] - code);
+        if (object[0] == code + 0x4a9c) {
+            WrapVtable(object, 30);
+            line.Append(_L8(" wrapped"));
+        }
+        if (object[1] == code + 0x4a9c + 0x80) WrapVtable(object + 1, 2);
+    }
     line.Commit();
     return result;
 }
@@ -101,9 +115,12 @@ const TInt KShadowDepth = 32;
 const TInt KTlsKey = 0xe00009a0;
 struct Shadow {
     TInt depth;
+    TInt logged;
     TUint lr[KShadowDepth];
-    TInt ordinal[KShadowDepth];
+    TInt ordinal[KShadowDepth];  // factory ordinal, or 100 + vtable slot
+    TUint r2[KShadowDepth];
 };
+const TInt KVerboseLines = 1500;
 Shadow* ThreadShadow() {
     auto* shadow = static_cast<Shadow*>(UserSvr::DllTls(KTlsKey, KTlsKey));
     if (!shadow) {
@@ -114,6 +131,142 @@ Shadow* ThreadShadow() {
     return shadow;
 }
 }  // namespace
+
+// Dumps 64 bytes at a register value and at the word it points to, when readable.
+void DumpBytes(TDes8& line, TUint address) {
+    const TUint8* bytes = reinterpret_cast<const TUint8*>(address);
+    for (TInt i = 0; i < 64; ++i) line.AppendFormat(_L8("%02x"), bytes[i]);
+    line.Append(' ');
+    for (TInt i = 0; i < 64; ++i) line.Append(bytes[i] >= 32 && bytes[i] < 127 ? bytes[i] : '.');
+}
+
+// Only the current thread's stack and heap are known to be mapped.
+bool Readable(TUint address) {
+    const TUint end = address + 64;
+    TThreadStackInfo stack;
+    if (RThread().StackInfo(stack) == KErrNone && address >= stack.iLimit && end <= stack.iBase)
+        return true;
+    RHeap& heap = User::Heap();
+    const TUint base = reinterpret_cast<TUint>(heap.Base());
+    return address >= base && end <= base + static_cast<TUint>(heap.Size());
+}
+
+void DumpPointer(TInt ordinal, TInt index, TUint address) {
+    if (!Readable(address)) return;
+    Line line;
+    line.AppendFormat(_L8("  f%d r%d @%08x "), ordinal, index, address);
+    DumpBytes(line, address);
+    line.Commit();
+    const TUint target = *reinterpret_cast<const TUint*>(address);
+    if (!Readable(target)) return;
+    Line deref;
+    deref.AppendFormat(_L8("  f%d *r%d @%08x "), ordinal, index, target);
+    DumpBytes(deref, target);
+    deref.Commit();
+}
+
+extern "C" {
+void VtableThunk0();
+void VtableThunk1();
+void VtableThunk2();
+void VtableThunk3();
+void VtableThunk4();
+void VtableThunk5();
+void VtableThunk6();
+void VtableThunk7();
+void VtableThunk8();
+void VtableThunk9();
+void VtableThunk10();
+void VtableThunk11();
+void VtableThunk12();
+void VtableThunk13();
+void VtableThunk14();
+void VtableThunk15();
+void VtableThunk16();
+void VtableThunk17();
+void VtableThunk18();
+void VtableThunk19();
+void VtableThunk20();
+void VtableThunk21();
+void VtableThunk22();
+void VtableThunk23();
+void VtableThunk24();
+void VtableThunk25();
+void VtableThunk26();
+void VtableThunk27();
+void VtableThunk28();
+void VtableThunk29();
+}
+void (*const VtableThunks[30])() = {
+    VtableThunk0,
+    VtableThunk1,
+    VtableThunk2,
+    VtableThunk3,
+    VtableThunk4,
+    VtableThunk5,
+    VtableThunk6,
+    VtableThunk7,
+    VtableThunk8,
+    VtableThunk9,
+    VtableThunk10,
+    VtableThunk11,
+    VtableThunk12,
+    VtableThunk13,
+    VtableThunk14,
+    VtableThunk15,
+    VtableThunk16,
+    VtableThunk17,
+    VtableThunk18,
+    VtableThunk19,
+    VtableThunk20,
+    VtableThunk21,
+    VtableThunk22,
+    VtableThunk23,
+    VtableThunk24,
+    VtableThunk25,
+    VtableThunk26,
+    VtableThunk27,
+    VtableThunk28,
+    VtableThunk29,
+};
+
+// Wrapped vtable copy: [original vtable][offset-to-top][typeinfo][slots...].
+void WrapVtable(TAny* object, TInt slots) {
+    TUint** vptr = static_cast<TUint**>(object);
+    TUint* original = *vptr;
+    TUint* copy = static_cast<TUint*>(User::Alloc((slots + 3) * sizeof(TUint)));
+    if (!copy) return;
+    copy[0] = reinterpret_cast<TUint>(original);
+    copy[1] = original[-2];
+    copy[2] = original[-1];
+    for (TInt i = 0; i < slots; ++i) copy[3 + i] = reinterpret_cast<TUint>(VtableThunks[i]);
+    *vptr = copy + 3;
+}
+
+extern "C" __attribute__((visibility("default"))) TAny* VtableResolve(TInt slot, TUint* args) {
+    TUint* vptr = *reinterpret_cast<TUint**>(args[0]);
+    TUint* original = reinterpret_cast<TUint*>(vptr[-3]);
+    Shadow* shadow = ThreadShadow();
+    if (shadow->logged < KVerboseLines) {
+        ++shadow->logged;
+        Line line;
+        line.AppendFormat(_L8("fa.v%d enter this=%08x r1=%08x r2=%08x r3=%08x caller=%x"), slot, args[0],
+                          args[1], args[2], args[3], ExeOffset(reinterpret_cast<TAny*>(args[5])));
+        line.Commit();
+        for (TInt i = 1; i < 4; ++i) DumpPointer(200 + slot, i, args[i]);
+    }
+    return reinterpret_cast<TAny*>(original[slot]);
+}
+
+extern "C" __attribute__((visibility("default"))) TAny* VtableResolveReturn(TInt slot, TUint* args) {
+    Shadow* shadow = ThreadShadow();
+    if (shadow->depth >= KShadowDepth) User::Panic(_L("RG_dl diag"), KErrOverflow);
+    shadow->lr[shadow->depth] = args[5];
+    shadow->ordinal[shadow->depth] = 100 + slot;
+    shadow->r2[shadow->depth] = args[2];
+    ++shadow->depth;
+    return VtableResolve(slot, args);
+}
 
 // args: saved r0-r3, ip, lr of the thunk's caller.
 extern "C" __attribute__((visibility("default"))) TAny* FactoryResolve(TInt ordinal, TUint* args) {
@@ -126,15 +279,29 @@ extern "C" __attribute__((visibility("default"))) TAny* FactoryResolve(TInt ordi
     line.AppendFormat(_L8("factory.%d enter r0=%08x r1=%08x r2=%08x r3=%08x caller=%x"), ordinal,
                       args[0], args[1], args[2], args[3], ExeOffset(reinterpret_cast<TAny*>(args[5])));
     line.Commit();
+    if (ordinal == 1 || ordinal == 5)
+        for (TInt i = 0; i < 4; ++i) DumpPointer(ordinal, i, args[i]);
     return Export(KFactory, ordinal);
 }
 
 extern "C" __attribute__((visibility("default"))) TUint FactoryLeave(TUint r0, TUint r1) {
     Shadow* shadow = ThreadShadow();
     --shadow->depth;
-    Line line;
-    line.AppendFormat(_L8("factory.%d return r0=%08x r1=%08x"), shadow->ordinal[shadow->depth], r0, r1);
-    line.Commit();
+    const TInt id = shadow->ordinal[shadow->depth];
+    if (id >= 100) {
+        if (shadow->logged < KVerboseLines || r0 != 0) {
+            ++shadow->logged;
+            Line line;
+            line.AppendFormat(_L8("fa.v%d return r0=%08x r1=%08x"), id - 100, r0, r1);
+            line.Commit();
+            DumpPointer(300 + id - 100, 2, shadow->r2[shadow->depth]);
+        }
+    } else if (shadow->logged < KVerboseLines || (r0 != 0 && r0 != 1 && r0 != 0x20)) {
+        ++shadow->logged;
+        Line line;
+        line.AppendFormat(_L8("factory.%d return r0=%08x r1=%08x"), id, r0, r1);
+        line.Commit();
+    }
     return shadow->lr[shadow->depth];
 }
 
