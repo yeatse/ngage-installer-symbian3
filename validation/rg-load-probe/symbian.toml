@@ -10,7 +10,7 @@ uid = 0xe0000999
 name = "RG load probe"
 vendor = "ngage-installer-symbian3"
 executable_name = "rg_load_probe.exe"
-version = [1, 0, 0]
+version = [1, 0, 1]
 
 [application]
 caption = "RG load probe"
