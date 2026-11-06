@@ -350,7 +350,7 @@ EXPORTS
  LibcForward349 @ 349 NONAME
  LibcForward350 @ 350 NONAME
  LibcForward351 @ 351 NONAME
- LibcForward352 @ 352 NONAME
+ ShimStrcpy @ 352 NONAME
  LibcForward353 @ 353 NONAME
  LibcForward354 @ 354 NONAME
  LibcForward355 @ 355 NONAME

@@ -1,6 +1,7 @@
 // Diagnostic libc stand-in for Reset Generation's file-manager factory, as
 // Hooked's BiNPDA shim does: memcpy/memmove/memset go to euser, every other
-// ordinal tail-calls the ROM libc export with the same ordinal.
+// ordinal tail-calls the ROM libc export with the same ordinal. strcpy uses
+// stpcpy, as the BiNPDA shim does.
 #include <e32std.h>
 #include <e32svr.h>
 
@@ -36,6 +37,12 @@ extern "C" __attribute__((visibility("default"))) TAny* LibcResolve(TInt ordinal
     TLibraryFunction function = libc->library.Lookup(ordinal);
     if (!function) User::Panic(_L("rgc"), ordinal);
     return reinterpret_cast<TAny*>(function);
+}
+
+// Hooked's shim routes strcpy to libc's stpcpy (ordinal 345) and returns its result.
+extern "C" __attribute__((visibility("default"))) char* ShimStrcpy(char* to, const char* from) {
+    using Stpcpy = char* (*)(char*, const char*);
+    return reinterpret_cast<Stpcpy>(LibcResolve(345))(to, from);
 }
 
 extern "C" __attribute__((visibility("default"))) TAny* ShimMemcpy(TAny* to, const TAny* from, unsigned int size) {
