@@ -122,6 +122,7 @@ struct Shadow {
     TUint r2[KShadowDepth];
 };
 const TInt KVerboseLines = 1500;
+const TInt KLibraryDumps = 0;  // TFindLibrary listing is slow on the 808; raise to log it.
 Shadow* ThreadShadow() {
     auto* shadow = static_cast<Shadow*>(UserSvr::DllTls(KTlsKey, KTlsKey));
     if (!shadow) {
@@ -282,7 +283,7 @@ extern "C" __attribute__((visibility("default"))) TAny* FactoryResolve(TInt ordi
     line.Commit();
     if (ordinal == 1 || ordinal == 5)
         for (TInt i = 0; i < 4; ++i) DumpPointer(ordinal, i, args[i]);
-    if (ordinal == 1 && shadow->libraryDumps < 3) {
+    if (ordinal == 1 && shadow->libraryDumps < KLibraryDumps) {
         ++shadow->libraryDumps;
         // The factory enumerates loaded libraries (TFindLibrary); record what it sees.
         TFindLibrary find(_L("*"));
