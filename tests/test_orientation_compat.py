@@ -13,8 +13,8 @@ from audio_compat import bytepair_image
 from component_identity import header_crc
 from extract_client import extract_client
 from merge_packages import data_units
-from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP, LANDSCAPE,
-                                ORIENTATION_SHA256, adapt_orientation, build_cre, parse_cre,
+from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP, FORMAT,
+                                LANDSCAPE, ORIENTATION_SHA256, adapt_orientation, build_cre, parse_cre,
                                 patch_code, patch_config, sections)
 from sis import Package, array_items, decompress, fields
 
@@ -62,16 +62,18 @@ class OrientationCompatibilityTests(unittest.TestCase):
                 self.assertEqual(values, original[path])
 
     def test_only_the_pinned_instructions_change(self):
-        for sha, (address, before, after) in ((ORIENTATION_SHA256, LANDSCAPE),
-                                              (BACKBUFFER_SHA256, DIMENSION_SWAP)):
-            patch = (address, before, after)
-            plain, patched = bytepair_image(self.raw[sha]), patch_code(self.raw[sha], sha, patch)
-            at = struct.unpack_from('<I', plain, 100)[0] + address - 0x8000
-            expected = bytearray(plain); expected[at:at + len(before)] = after
+        for sha, patches in ((ORIENTATION_SHA256, (LANDSCAPE,)),
+                             (BACKBUFFER_SHA256, (DIMENSION_SWAP, *FORMAT))):
+            plain, patched = bytepair_image(self.raw[sha]), patch_code(self.raw[sha], sha, *patches)
+            expected = bytearray(plain)
+            for address, before, after in patches:
+                at = struct.unpack_from('<I', plain, 100)[0] + address - 0x8000
+                self.assertEqual(expected[at:at + len(before)], before)
+                expected[at:at + len(before)] = after
             struct.pack_into('<I', expected, 20, header_crc(expected, 156))
             self.assertEqual(patched, bytes(expected))
             with self.assertRaises(ValueError):
-                patch_code(self.raw[sha][:-1], sha, patch)
+                patch_code(self.raw[sha][:-1], sha, *patches)
 
     def test_package_replaces_only_the_targeted_payloads(self):
         result = adapt_orientation(self.package)

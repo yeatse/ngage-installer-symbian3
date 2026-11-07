@@ -34,7 +34,7 @@ phone's existing window and bitmap services. Frames are drawn into the window
 server's direct screen access buffer, which is composed only inside the game's
 running DSA region; a separate presentation window would cover the game window,
 empty that region and stop games that only post while it is non-empty. It
-supports buffer submission, DSA clipping, scaling and RGB565/RGB888/RGBx888
+supports buffer submission, DSA clipping, scaling and RGB444/RGB565/RGB888/RGBx888
 conversion. Its capabilities are set
 to ALL-TCB to match the window/bitmap dependencies, resolving the loader's -46
 permission failure that preceded the crash on the physical phone. The phone
@@ -47,12 +47,15 @@ N97 display configuration selected on Symbian^3. That configuration enables the
 portrait option and scales portrait backbuffers to the screen height. It also reports the native
 display as 240×320, matching its portrait orientation at angle 0; games such as
 Reset Generation lay out for the native size and otherwise draw only the top 240
-lines of a 240×320 buffer. Two pinned NGI instructions
+lines of a 240×320 buffer. Pinned NGI instructions
 are changed. `ngigameorientation.dll` requests the landscape app UI
 orientation for every game orientation instead of selecting a window-server
 screen mode by configured index, which is device-specific (on a physical 808 it
-selected portrait), and `ngibackbuffer.dll` keeps portrait buffer dimensions instead
-of swapping them.
+selected portrait). `ngibackbuffer.dll` keeps portrait buffer dimensions instead
+of swapping them, and sizes every 16-bit backbuffer (RGB444, RGB555, RGB565) at two
+bytes per pixel, posting it as `KPostPlatformDependent` with the NGI format value.
+Unpatched, it handled only RGB565 as 16-bit, so Snakes Subsonic's RGB444 picture was
+posted as RGBx888 and appeared colour-shifted and doubled side by side.
 
 Translucent square controls provide a five-way pad on the left, R/A/B/L from top
 to bottom on the right, and hide/show at the upper left. Input handling tracks

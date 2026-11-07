@@ -62,6 +62,25 @@ TUint Divide(TUint numerator, TUint denominator) {
     return result;
 }
 
+enum class Pixel { kInvalid, k444, k555, k565, k888, kx888 };
+
+// The patched NGI backbuffer passes formats without a posting equivalent as the
+// NGI format value tagged with KPostPlatformDependent.
+Pixel PixelOf(TUint format) {
+    switch (format) {
+    case CPostingSurface::ERgb16bit565Le: return Pixel::k565;
+    case CPostingSurface::ERgb24bit888Le: return Pixel::k888;
+    case CPostingSurface::ERgb32bit888Le: return Pixel::kx888;
+    case KPostPlatformDependent | 0x4010: return Pixel::k444;
+    case KPostPlatformDependent | 0x8010: return Pixel::k555;
+    case KPostPlatformDependent | 0x10010: return Pixel::k565;
+    case KPostPlatformDependent | 0x20018: return Pixel::k888;
+    case KPostPlatformDependent | 0x40020: return Pixel::kx888;
+    default: return Pixel::kInvalid;
+    }
+}
+TInt BytesOf(Pixel pixel) { return pixel == Pixel::k888 ? 3 : pixel == Pixel::kx888 ? 4 : 2; }
+
 class Buffer final : public CPostingSurface::TPostingBufferChunk {
 public:
     void CreateL(TSize size, TInt bytes) {
@@ -85,7 +104,7 @@ class Surface final : public CPostingSurface {
     RRegion clip_;
     bool clip_set_ = false;
     TSize source_{0, 0};
-    TPostingFormat format_ = EFormatInvalidValue;
+    Pixel pixel_ = Pixel::kInvalid;
     TPostingParams destination_;
     bool connected_ = false;
     bool fbs_connected_ = false;
@@ -107,7 +126,7 @@ public:
         User::LeaveIfError(RFbsSession::Connect()); fbs_connected_ = true;
     }
     TBool FormatSupported(TPostingFormat format) override {
-        return format == ERgb16bit565Le || format == ERgb24bit888Le || format == ERgb32bit888Le;
+        return PixelOf(format) != Pixel::kInvalid;
     }
     void GetCapabilities(TPostingCapab& caps) override {
         caps = TPostingCapab(); caps.iMaxPixelSize = TSize(640, 640);
@@ -124,9 +143,8 @@ public:
         if (source.iBufferType != EChunkBuffer && source.iBufferType != EStandardBuffer)
             User::Leave(KErrNotSupported);
         Release(); ReleaseDirect();
-        source_ = source.iSourceImageSize; format_ = source.iPostingFormat;
-        const TInt bytes = format_ == ERgb16bit565Le ? 2 : format_ == ERgb24bit888Le ? 3 : 4;
-        buffer_.CreateL(source_, bytes);
+        source_ = source.iSourceImageSize; pixel_ = PixelOf(source.iPostingFormat);
+        buffer_.CreateL(source_, BytesOf(pixel_));
         User::LeaveIfError(SetPostingParameters(destination));
         // Matches CDirectScreenAccess: the DSA buffer follows the current app orientation.
         direct_ = CFbsScreenDevice::NewL(screen_->GetScreenNumber(), screen_->DisplayMode());
@@ -187,7 +205,7 @@ public:
         if (crop.IsEmpty() || bitmap.iSize.iWidth > 640) return KErrArgument;
         TRect visible = output; visible.Intersection(TRect(TPoint(0, 0), bitmap.iSize));
         const auto* input = static_cast<const TUint8*>(buffer->GetBuffer());
-        const TInt in_bytes = format_ == ERgb16bit565Le ? 2 : format_ == ERgb24bit888Le ? 3 : 4;
+        const TInt in_bytes = BytesOf(pixel_);
         const TInt in_stride = buffer->GetStride();
         if (in_stride < source_.iWidth * in_bytes) return KErrArgument;
         const bool fast32 = in_bytes == 4 && out_bytes == 4 &&
@@ -208,7 +226,15 @@ public:
                     continue;
                 }
                 TUint b, g, r;
-                if (in_bytes == 2) {
+                if (pixel_ == Pixel::k444) {
+                    const TUint value = pixel[0] | (pixel[1] << 8);
+                    b = (value & 15) * 17; g = ((value >> 4) & 15) * 17; r = ((value >> 8) & 15) * 17;
+                } else if (pixel_ == Pixel::k555) {
+                    const TUint value = pixel[0] | (pixel[1] << 8);
+                    b = value & 31; b = (b << 3) | (b >> 2);
+                    g = (value >> 5) & 31; g = (g << 3) | (g >> 2);
+                    r = (value >> 10) & 31; r = (r << 3) | (r >> 2);
+                } else if (in_bytes == 2) {
                     const TUint value = pixel[0] | (pixel[1] << 8);
                     b = value & 31; b = (b << 3) | (b >> 2);
                     g = (value >> 5) & 63; g = (g << 2) | (g >> 4);

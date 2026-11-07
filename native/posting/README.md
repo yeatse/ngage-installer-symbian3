@@ -11,6 +11,9 @@ The corresponding license is included here. `main.cc`, CMake and build tooling
 are this project's implementation.
 
 Currently supported source formats are little-endian RGB565, RGB888 and RGBx888.
+`KPostPlatformDependent` combined with an NGI pixel format (0x4010 RGB444,
+0x8010 RGB555, 0x10010 RGB565, 0x20018 RGB888, 0x40020 RGBx888) is also accepted; the
+installer's patched `ngibackbuffer.dll` posts formats that way.
 Rotation and mirroring are reported as unsupported. `Destroy` releases posting
 buffers while retaining the presentation objects so that `InitializeL` can be
 called again on the same surface.

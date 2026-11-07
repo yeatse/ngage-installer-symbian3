@@ -15,6 +15,20 @@ CODE_BASE = 0x8000
 LANDSCAPE = 0x8244, bytes.fromhex('e0690526f6430028'), bytes.fromhex('00f098e9406a10e0')
 # Portrait backbuffers keep their own width and height instead of being swapped to landscape.
 DIMENSION_SWAP = 0xd3e4, struct.pack('<I', 0x1a000010), struct.pack('<I', 0xea000020)
+# Every 16-bit backbuffer (RGB444, RGB555 and RGB565, low byte 0x10) is two bytes per pixel and is
+# posted as KPostPlatformDependent | NGI format, which the posting stand-in decodes. NGI otherwise
+# would treat RGB444 and RGB555 as four-byte RGBx888.
+FORMAT = (
+    (0xd194, bytes.fromhex('01c840e2'), bytes.fromhex('ffc000e2')),
+    (0xd19c, bytes.fromhex('0700a0030650a0e103504602'),
+     bytes.fromhex('015280e30700a0030000a0e1')),
+    (0xd4a0, bytes.fromhex('01c840e2'), bytes.fromhex('ffc000e2')),
+    (0xd4a8, bytes.fromhex('0700a0030750a0e103504702'),
+     bytes.fromhex('015280e30700a0030000a0e1')),
+    (0xe6c0, bytes.fromhex('01c840e2'), bytes.fromhex('ffc000e2')),
+    (0xed94, bytes.fromhex('01c841e2'), bytes.fromhex('ffc001e2')),
+    (0xef78, bytes.fromhex('01c841e2'), bytes.fromhex('ffc001e2')),
+)
 DISPLAY = '/hardware/graphics/displays/0'
 ORIENTATIONS = DISPLAY + '/ngageorientations'
 BACKBUFFERS = '/hardware/graphics/backbuffer/configurations/'
@@ -141,17 +155,17 @@ def patch_config(raw):
     return build_cre(head, entries, tail)
 
 
-def patch_code(raw, expected_sha, patch):
+def patch_code(raw, expected_sha, *patches):
     if hashlib.sha256(raw).hexdigest() != expected_sha:
         raise ValueError('Unexpected NGI display library')
     image = bytearray(bytepair_image(raw))
     if struct.unpack_from('<I', image, 76)[0] != CODE_BASE:
         raise ValueError('Unexpected NGI code base')
-    address, original, replacement = patch
-    at = struct.unpack_from('<I', image, 100)[0] + address - CODE_BASE
-    if image[at:at + len(original)] != original:
-        raise ValueError('Unexpected NGI display instructions')
-    image[at:at + len(original)] = replacement
+    for address, original, replacement in patches:
+        at = struct.unpack_from('<I', image, 100)[0] + address - CODE_BASE
+        if image[at:at + len(original)] != original:
+            raise ValueError('Unexpected NGI display instructions')
+        image[at:at + len(original)] = replacement
     struct.pack_into('<I', image, 20, header_crc(image, 156))
     return bytes(image)
 
@@ -163,5 +177,6 @@ def adapt_orientation(package):
                              lambda raw: patch_code(raw, ORIENTATION_SHA256, LANDSCAPE),
                              'ngigameorientation.dll', copies=1)
     return replace_images(package, BACKBUFFER_SHA256,
-                          lambda raw: patch_code(raw, BACKBUFFER_SHA256, DIMENSION_SWAP),
+                          lambda raw: patch_code(raw, BACKBUFFER_SHA256, DIMENSION_SWAP,
+                                                         *FORMAT),
                           'ngibackbuffer.dll')
