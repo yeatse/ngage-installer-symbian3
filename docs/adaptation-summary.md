@@ -88,7 +88,7 @@ The bridge scales the legacy 0–10 range to the actual device range: for exampl
 A RemCon Core API target in the game's audio thread supports hardware volume
 click, press and release actions with bounded hold repeat. It adjusts the active
 DevSound instance directly. The bridge handles pause/resume and changes to the
-game's own volume setting, clears the instance reference on Stop, and keeps the
+game's own volume setting, clears the instance reference on Stop and destruction, and keeps the
 callback DLL loaded while receivers exist to avoid dangling object or code
 references.
 

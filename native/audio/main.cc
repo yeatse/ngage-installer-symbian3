@@ -59,7 +59,9 @@ State& Session() {
 }
 extern "C" TLibraryFunction AudioResolve(TInt ordinal, TInt* args) {
     auto& state = Session();
-    if (ordinal == 28 && state.sound == reinterpret_cast<TAny*>(args[0])) state.sound = nullptr;
+    // Stop (28) and the destructors (38-40) end the instance the volume keys address.
+    if ((ordinal == 28 || (ordinal >= 38 && ordinal <= 40)) && state.sound == reinterpret_cast<TAny*>(args[0]))
+        state.sound = nullptr;
     if (ordinal == 35 || ordinal == 33) state.sound = reinterpret_cast<TAny*>(args[0]);
     if (ordinal == 35) ApplyHardwareVolume(state);
     if (ordinal == 37) {
