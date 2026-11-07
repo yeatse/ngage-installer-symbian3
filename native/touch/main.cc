@@ -23,13 +23,15 @@ constexpr std::array<Binding, 9> kBindings{{
     {EStdKeyDevice3, EKeyDevice3, u"OK"},
     {EStdKeyRightArrow, EKeyRightArrow, u"→"},
     {EStdKeyDownArrow, EKeyDownArrow, u"↓"},
-    {'5', '5', u"A"}, {'7', '7', u"B"},
+    // Primary/secondary action keys of the N97 NGI input profile that Symbian^3 selects.
+    {EStdKeyEnter, EKeyEnter, u"A"}, {EStdKeyBackspace, EKeyBackspace, u"B"},
     {EStdKeyDevice0, EKeyDevice0, u"L"},
     {EStdKeyDevice1, EKeyDevice1, u"R"}
 }};
 
 static_assert(EStdKeyDevice0 == 0xa4 && EStdKeyDevice1 == 0xa5);
 static_assert(EKeyDevice0 == 0xf842 && EKeyDevice1 == 0xf843);
+static_assert(EStdKeyEnter == 0x03 && EStdKeyBackspace == 0x01);
 
 constexpr int kButtonCount = kBindings.size();
 constexpr int kToggle = kButtonCount;

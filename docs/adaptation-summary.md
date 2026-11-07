@@ -59,6 +59,10 @@ to bottom on the right, and hide/show at the upper left. Input handling tracks
 holds, repeats and multiple pointers, and releases keys when controls are hidden
 or focus changes to prevent stuck keys.
 
+A and B send Enter and Backspace, the primary and secondary action keys of
+the N97 NGI input profile that Symbian^3 selects. That profile has no keypad
+digits, so phone-keypad keys such as 5 and 7 reach the game unmapped.
+
 L/R cannot be implemented simply by sending Enter/Backspace. Following NGI's
 original pointer path, a source-built Thumb adapter augments the pinned
 `ngiinput.dll`'s standard 32-bit and internal 64-bit lookups. It maps
