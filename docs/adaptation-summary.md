@@ -92,6 +92,27 @@ game's own volume setting, clears the instance reference on Stop, and keeps the
 callback DLL loaded while receivers exist to avoid dangling object or code
 references.
 
+## Game memory pools
+
+Games such as Worms World Party, FIFA 08 and FIFA 09 failed at start with
+"Close some applications" (NGI error -1000002, mapped from `KErrNoMemory`) on
+Symbian^3, although the phone had plenty of free RAM. Two assumptions in
+`ngimemorymanagement.dll` about the S60 3rd Edition `RHeap` do not hold for the
+Symbian^3 `RHybridHeap`:
+
+- The pool ownership check reads the heap's first and top cell bounds.
+  `RHybridHeap` sets the top only at construction, so cells past the first page
+  are treated as foreign, and `ReAlloc`/`Free` on them fail. The check now uses
+  the heap's chunk base up to the heap plus its maximum length.
+- A pool is reserved by growing its first cell with `ReAlloc(ENeverMove)`.
+  `RHybridHeap::DlRealloc` grows a cell in place only into memory that is
+  already committed and never extends the chunk. The chunk heap behind a pool
+  is therefore created fully committed (minimum length equal to the maximum),
+  which is the memory the reservation would have committed anyway.
+
+Both changes are applied only to the pinned DLL image and are verified by hash
+and instruction bytes.
+
 ## Licence status
 
 Games installed from exported packages have no DRM rights object for their
@@ -114,9 +135,9 @@ on Linux and produce unsigned SIS packages. GitHub Actions builds and uploads
 the artifacts. Large installer, SDK and X7 service inputs are cached by SHA-256
 and verified after restoration. Regular builds do not download ROMs or games.
 
-The 31 project checks cover package structure, original-input protection,
+The 33 project checks cover package structure, original-input protection,
 import redirection, component identities, volume scaling, the licence-query
-patch, portrait display settings and instructions, and Thumb softkey execution
+patch, the memory-pool patch, portrait display settings and instructions, and Thumb softkey execution
 and ABI behavior. Runtime validation covers the N97 baseline,
 installation and launch inside Games on X7, game menus and gameplay screens,
 and user testing on the physical 808.
