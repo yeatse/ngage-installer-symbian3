@@ -1,7 +1,7 @@
 .syntax unified
 .arm
 .text
-@ Forwards libc ordinal N to the real libc export, keeping r0-r3, the stack and lr.
+@ Untraced ordinals tail-call the real libc export, keeping r0-r3, the stack and lr.
 .macro FORWARD ordinal
 .global LibcForward\ordinal
 .type LibcForward\ordinal, %function
@@ -17,6 +17,33 @@ LibcForward\ordinal:
     bx ip
 .size LibcForward\ordinal, .-LibcForward\ordinal
 .endm
+@ Traced ordinals log their arguments, return through LibcReturn to log the
+@ result, and keep the caller's lr on a per-thread shadow stack.
+.macro TRACE ordinal
+.global LibcForward\ordinal
+.type LibcForward\ordinal, %function
+LibcForward\ordinal:
+    push {r0-r3, ip, lr}
+    mov r0, #(\ordinal & 0xff)
+    orr r0, r0, #(\ordinal & 0xff00)
+    mov r1, sp
+    bl LibcEnter
+    mov ip, r0
+    pop {r0-r3}
+    add sp, sp, #8
+    ldr lr, =LibcReturn
+    bx ip
+.ltorg
+.size LibcForward\ordinal, .-LibcForward\ordinal
+.endm
+.type LibcReturn, %function
+LibcReturn:
+    push {r0-r3}
+    bl LibcLeave
+    mov ip, r0
+    pop {r0-r3}
+    bx ip
+.size LibcReturn, .-LibcReturn
 FORWARD 1
 FORWARD 2
 FORWARD 3
@@ -74,7 +101,7 @@ FORWARD 54
 FORWARD 55
 FORWARD 56
 FORWARD 57
-FORWARD 58
+TRACE 58
 FORWARD 59
 FORWARD 60
 FORWARD 61
@@ -91,13 +118,13 @@ FORWARD 71
 FORWARD 72
 FORWARD 73
 FORWARD 74
-FORWARD 75
+TRACE 75
 FORWARD 76
 FORWARD 77
 FORWARD 78
 FORWARD 79
 FORWARD 80
-FORWARD 81
+TRACE 81
 FORWARD 82
 FORWARD 83
 FORWARD 84
@@ -106,7 +133,7 @@ FORWARD 86
 FORWARD 87
 FORWARD 88
 FORWARD 89
-FORWARD 90
+TRACE 90
 FORWARD 91
 FORWARD 92
 FORWARD 93
@@ -114,7 +141,7 @@ FORWARD 94
 FORWARD 95
 FORWARD 96
 FORWARD 97
-FORWARD 98
+TRACE 98
 FORWARD 99
 FORWARD 100
 FORWARD 101
@@ -129,7 +156,7 @@ FORWARD 109
 FORWARD 110
 FORWARD 111
 FORWARD 112
-FORWARD 113
+TRACE 113
 FORWARD 114
 FORWARD 115
 FORWARD 116
@@ -232,12 +259,12 @@ FORWARD 212
 FORWARD 213
 FORWARD 214
 FORWARD 215
-FORWARD 216
+TRACE 216
 FORWARD 217
 FORWARD 218
-FORWARD 219
+TRACE 219
 FORWARD 220
-FORWARD 221
+TRACE 221
 FORWARD 222
 FORWARD 223
 FORWARD 224
@@ -265,7 +292,7 @@ FORWARD 248
 FORWARD 249
 FORWARD 250
 FORWARD 251
-FORWARD 252
+TRACE 252
 FORWARD 253
 FORWARD 254
 FORWARD 255
@@ -284,12 +311,12 @@ FORWARD 267
 FORWARD 268
 FORWARD 269
 FORWARD 270
-FORWARD 271
-FORWARD 272
-FORWARD 273
+TRACE 271
+TRACE 272
+TRACE 273
 FORWARD 274
 FORWARD 275
-FORWARD 276
+TRACE 276
 FORWARD 277
 FORWARD 278
 FORWARD 279
@@ -355,25 +382,26 @@ FORWARD 338
 FORWARD 339
 FORWARD 340
 FORWARD 341
-FORWARD 342
+TRACE 342
 FORWARD 343
 FORWARD 344
 FORWARD 345
-FORWARD 346
+TRACE 346
 FORWARD 347
-FORWARD 348
+TRACE 348
 FORWARD 349
 FORWARD 350
 FORWARD 351
+TRACE 352
 FORWARD 353
 FORWARD 354
 FORWARD 355
 FORWARD 356
 FORWARD 357
-FORWARD 358
+TRACE 358
 FORWARD 359
 FORWARD 360
-FORWARD 361
+TRACE 361
 FORWARD 362
 FORWARD 363
 FORWARD 364
@@ -396,7 +424,7 @@ FORWARD 380
 FORWARD 381
 FORWARD 382
 FORWARD 383
-FORWARD 384
+TRACE 384
 FORWARD 385
 FORWARD 386
 FORWARD 387
@@ -409,4 +437,5 @@ FORWARD 393
 FORWARD 394
 FORWARD 395
 FORWARD 396
-FORWARD 397
+TRACE 397
+.ltorg

@@ -13,4 +13,4 @@ target_include_directories(rgc SYSTEM PRIVATE
   "${SYMBIAN_SDK_PREFIX}/include/compiler")
 target_compile_options(rgc PRIVATE -fshort-wchar -fno-exceptions -fno-rtti
   "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-include ${SYMBIAN_SDK_PREFIX}/cmake/native_cpp_compat.h>")
-target_link_libraries(rgc PRIVATE Symbian::EUser)
+target_link_libraries(rgc PRIVATE Symbian::EUser Symbian::FileServer)
