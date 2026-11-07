@@ -314,3 +314,35 @@ Hooked fixture. Starting the game from Games created the helper, displayed the
 controls, and L advanced language/save-slot selection. Final ordinary SIS SHA-256:
 `84b26e1261313407cada497e868375b20b0881c0c7b27275e924cc3c36f72c32`.
 Its touch executable description is Install (1), options 0, with no run action.
+
+## Reset Generation and Open4All
+
+On a Nokia 808 with Install Server and Open4All enabled, Reset Generation
+showed a black screen and then exited with KERN-EXEC 3. The crash is at exe link
+address `0x9cd46`, where `mt::file::FileManagerImplNGI` dereferences an
+uninitialised `CFileManagerS` member. It worked on the X7 emulator profile and on
+a 5320. The [load probe](rg-load-probe/README.md) showed every library and
+ordinal of the file-manager chain loading on the 808. The
+[RG_dl diagnostic](rg-dl-diag/README.md) then showed creation succeeding. The
+game's `ngifilemanagerfactory_2000AFC4.dll` ordinal 1 returned `0x64` instead of
+`0x20`, at a different call in each launch. A failure during creation leaves the
+member uninitialised and crashes. A failure during a later pak open leaves the
+game black.
+
+The [libc stand-in](rg-libc-shim/README.md) logged the factory's libc calls and
+showed the check. The factory seeds `srandom` with `time()`, and some calls
+check `\sys\bin\loginfo.txt`. They then take the first entry of
+`opendir("\private")`, parse it as a UID and open `\private\<UID>\loginfo.txt`.
+If that file exists, the call returns `0x64`. Opening `\private` needs AllFiles
+(`TFsDirOpen` uses `KCapFsPriDirOpen`), which the game lacks, so on a standard
+phone the listing is refused and the check finds nothing. Open4All removes that
+restriction. On the 808 the first entry was another application's
+`\private\20068279`, and that application recreates `loginfo.txt` there.
+Deleting the file did not last. With Open4All off, the user confirmed the game
+works with the unchanged game files and the ordinary package.
+
+Replacing the factory's memcpy/memmove/memset, as Hooked's BiNPDA shim does,
+did not fix it. It only changed which call failed. The package and the game are
+unchanged; the README tells users to turn Open4All off for this game. EKA2L1
+lets processes without AllFiles open `\private`, so this check never fails in
+the emulator.

@@ -31,6 +31,13 @@ Your phone must already be hacked, with **Install Server** and **Open4All** enab
 To upgrade, exit Games, install the new package over the existing version, then
 restart your phone. Games are not included; you must provide your own game files.
 
+## Known issues
+
+- **Reset Generation**: turn **Open4All** off before playing. With Open4All on,
+  the game can show a black screen or exit with KERN-EXEC 3 at a random point
+  during startup. Install Server can stay on. Open4All is only needed while
+  installing.
+
 ## Screenshots
 
 These screenshots were captured in EKA2L1 using an X7 ROM. The Nokia 808 results
