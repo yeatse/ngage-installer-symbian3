@@ -1,0 +1,22 @@
+#include <ecom/registryinfo.rh>
+
+RESOURCE REGISTRY_INFO r_registry
+    {
+    dll_uid = 0xe0000966;
+    interfaces =
+        {
+        INTERFACE_INFO
+            {
+            interface_uid = 0x101f7d87;
+            implementations =
+                {
+                IMPLEMENTATION_INFO
+                    {
+                    implementation_uid = 0xe0000966;
+                    version_no = 1;
+                    display_name = "NgageDataRecognizer";
+                    }
+                };
+            }
+        };
+    }

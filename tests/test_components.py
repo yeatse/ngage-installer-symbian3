@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from component_identity import header_crc, patch_image
 from adapt_client import target_component, SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID
 from merge_packages import merge_embedded
-from native_package import single_file
+from native_package import package_files, single_file
 from sis import Field, Package, array, array_items, fields, sequence
 
 
@@ -37,6 +37,26 @@ class ComponentTests(unittest.TestCase):
                          r'C:\sys\bin\ngage_touch.exe')
         self.assertEqual(struct.unpack_from('<II', description.payload, len(description.payload)-28),
                          (1, 0))
+        self.assertEqual(Package.parse(result.encode()), result)
+
+    def test_multi_file_component_indexes_each_file_in_its_data_unit(self):
+        base = package(1)
+        info = Field(14, sequence([Field(9, struct.pack('<I', 1)), Field(1, b''),
+                                  array(1, [Field(1, b'')])]) + bytes(2))
+        template = Package(base.uid_header, Field(13, info.encode() + base.controller.payload), base.data)
+        files = [(r'C:\sys\bin\ngdatrecognizer.dll', self.image()),
+                 (r'C:\resource\plugins\ngdatrecognizer.rsc', b'resource')]
+        result = package_files(template, files, package_uid=0xe0000967, name='Recognizer')
+        block = next(f for f in fields(result.controller.payload) if f.kind == 28)
+        descriptions = array_items(fields(block.payload)[0])
+        targets = [fields(d.payload[:-28])[0].payload.decode('utf-16le') for d in descriptions]
+        indices = [struct.unpack_from('<I', d.payload, len(d.payload) - 4)[0] for d in descriptions]
+        self.assertEqual(targets, [target for target, _ in files])
+        self.assertEqual(indices, [0, 1])
+        unit = array_items(fields(result.data.payload)[0])[0]
+        streams = array_items(fields(unit.payload)[0])
+        contents = [fields(s.payload)[0].payload[12:] for s in streams]
+        self.assertEqual(contents, [raw for _, raw in files])
         self.assertEqual(Package.parse(result.encode()), result)
 
     def test_sdk_components_do_not_leave_the_target_device_list_empty(self):

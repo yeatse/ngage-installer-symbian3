@@ -113,6 +113,24 @@ Symbian^3 `RHybridHeap`:
 Both changes are applied only to the pinned DLL image and are verified by hash
 and instruction bytes.
 
+## Game data recognition
+
+Dogz, Dirk Dagger, Metal Gear Solid Mobile and Resident Evil Degeneration
+crashed or reported that their encrypted assets could not be loaded. Their
+`<game>fileaccess.dll` opens each `.ngdat` asset through CAF. Unprotected
+files are served by the F32 agent, and the fileaccess component fails the open
+unless the agent's MIME type query succeeds. The F32 agent answers that query
+with `RApaLsSession::AppForDocument`, which returns `KErrNotFound` when no
+recognizer claims the file. No ROM recognizer knows `.ngdat`, and on Symbian^3
+the recognizers run in `EMimeServer`, which cannot read the game's private
+directory.
+
+A source-built ECOM recognizer, `ngdatrecognizer.dll`, assigns
+`application/x-ngage-data` to `.ngdat` names with probable confidence, without
+reading the file. A DRM recognizer still claims protected DCF content with
+certainty. The DLL's capabilities are ALL-TCB, so it loads into the recognition
+server.
+
 ## Licence status
 
 Games installed from exported packages have no DRM rights object for their
@@ -135,10 +153,10 @@ on Linux and produce unsigned SIS packages. GitHub Actions builds and uploads
 the artifacts. Large installer, SDK and X7 service inputs are cached by SHA-256
 and verified after restoration. Regular builds do not download ROMs or games.
 
-The 33 project checks cover package structure, original-input protection,
-import redirection, component identities, volume scaling, the licence-query
-patch, the memory-pool patch, portrait display settings and instructions, and Thumb softkey execution
-and ABI behavior. Runtime validation covers the N97 baseline,
+The 34 project checks cover package structure, multi-file components,
+original-input protection, import redirection, component identities, volume
+scaling, the licence-query patch, the memory-pool patch, portrait display
+settings and instructions, and Thumb softkey execution and ABI behavior. Runtime validation covers the N97 baseline,
 installation and launch inside Games on X7, game menus and gameplay screens,
 and user testing on the physical 808.
 

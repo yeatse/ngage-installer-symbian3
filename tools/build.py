@@ -17,7 +17,7 @@ from merge_packages import merge_embedded
 from installserver_compat import adapt_server
 from licence_compat import adapt_licence
 from memory_compat import adapt_memory
-from native_package import single_file
+from native_package import package_files, single_file
 from sis import Package
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +38,27 @@ def compile_native(sdk, name):
         f'-DSYMBIAN_SDK_PREFIX={sdk}', f'-DCMAKE_MAKE_PROGRAM={sdk}/bin/ninja')
     run(sdk / 'bin/cmake', '--build', build, '--parallel', '2')
     return build
+
+
+def compile_resource(sdk, source, output):
+    output.parent.mkdir(parents=True, exist_ok=True)
+    preprocessed = output.with_suffix('.rpp')
+    run(sdk / 'bin/clang', '-E', '-P', '-x', 'c', '-undef', '-nostdinc',
+        f'-I{sdk}/include/native', source, '-o', preprocessed)
+    run(sdk / 'bin/rcomp', '-u', f'-o{output}', f'-s{preprocessed}')
+    return output.read_bytes()
+
+
+def recognizer_component(sdk, template):
+    raw = (compile_native(sdk, 'recognizer') / 'ngdatrecognizer.dll').read_bytes()
+    # The recognizer loads into the MIME recognition server, whose caps it must cover.
+    image = patch_image(raw, 0xe0000966, uid2=0x10009d8d, expected_uid1=0x10000079,
+                        expected_uid2=0x1000008d, capabilities=0xffffe)
+    resource = compile_resource(sdk, ROOT / 'native/recognizer/ngdatrecognizer.rss',
+                                ROOT / 'build/recognizer/rsc/ngdatrecognizer.rsc')
+    return package_files(template, [(r'C:\sys\bin\ngdatrecognizer.dll', image),
+                                    (r'C:\resource\plugins\ngdatrecognizer.rsc', resource)],
+                         package_uid=0xe0000967, name='N-Gage game data recognizer')
 
 
 def component(sdk, name, executable, uid, **identity):
@@ -103,6 +124,7 @@ def main():
     components.append(single_file(touch, bytes(audio_image), package_uid=0xe0000965,
                                  name='N-Gage native audio compatibility',
                                  target=r'C:\sys\bin\NgageSoundX.dll'))
+    components.append(recognizer_component(sdk, touch))
     # Ordinary hacked phones already supply InstallServer. The X7 CFW backend
     # is a separate package variant; replacing a running SWI service is unsafe.
     result = merge_embedded(parent, components).encode()
@@ -123,6 +145,7 @@ def main():
                    'native_softkey_mapping': True,
                    'audio_volume_compatibility': True,
                    'hybrid_heap_memory_pools': True,
+                   'game_data_recognizer': True,
                    'missing_rights_licence_status': 'full',
                    'guest_install_service': 'existing phone installation service',
                    'guest_display': 'window server DSA buffer',
