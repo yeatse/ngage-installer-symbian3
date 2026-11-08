@@ -2,7 +2,7 @@
 
 An adaptation of Nokia N97's N-Gage 2.0 for hacked Symbian^3 / Belle phones,
 with touchscreen controls for devices without a physical keypad.
-Current version: **1.30(1551)**.
+Current version: **1.30(1552)**.
 
 **Hooked: Creatures of the Deep** has been tested on a **Nokia 808 Belle FP2**,
 with working graphics, sound, virtual controls and hardware volume buttons.

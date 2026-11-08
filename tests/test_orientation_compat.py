@@ -1,4 +1,4 @@
-"""Check portrait presentation settings and the two pinned NGI instruction changes."""
+"""Check portrait presentation settings and the pinned NGI instruction changes."""
 import hashlib
 import os
 from pathlib import Path
@@ -13,9 +13,11 @@ from audio_compat import bytepair_image
 from component_identity import header_crc
 from extract_client import extract_client
 from merge_packages import data_units
-from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP, FORMAT,
-                                LANDSCAPE, ORIENTATION_SHA256, adapt_orientation, build_cre, parse_cre,
-                                patch_code, patch_config, sections)
+from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP, DISPLAY_ENTRY,
+                                DISPLAY_SHA256, DISPLAY_STUB, FORMAT, ORIENTATION_ENTRY,
+                                ORIENTATION_IMPORTS, ORIENTATION_SHA256, ORIENTATION_STUB,
+                                adapt_orientation, build_cre, compile_orientation, parse_cre,
+                                patch_code, patch_config, patch_stub, sections)
 from sis import Package, array_items, decompress, fields
 
 
@@ -32,6 +34,10 @@ class OrientationCompatibilityTests(unittest.TestCase):
         if not path.exists():
             raise unittest.SkipTest('Fetch the pinned installer before orientation checks')
         cls.package = Package.parse(adapt_client(extract_client(Package.parse(path.read_bytes())))[0])
+        sdk = Path(os.environ.get('NGAGE_SDK', '/nonexistent'))
+        if not (sdk / 'bin/clang').exists():
+            raise unittest.SkipTest('NGAGE_SDK is needed to compile the orientation stubs')
+        cls.stubs = compile_orientation(sdk, ROOT)
         cls.raw = {}
         for raw in payloads(cls.package):
             cls.raw.setdefault(hashlib.sha256(raw).hexdigest(), raw)
@@ -62,22 +68,44 @@ class OrientationCompatibilityTests(unittest.TestCase):
                 self.assertEqual(values, original[path])
 
     def test_only_the_pinned_instructions_change(self):
-        for sha, patches in ((ORIENTATION_SHA256, (LANDSCAPE,)),
-                             (BACKBUFFER_SHA256, (DIMENSION_SWAP, *FORMAT))):
-            plain, patched = bytepair_image(self.raw[sha]), patch_code(self.raw[sha], sha, *patches)
-            expected = bytearray(plain)
-            for address, before, after in patches:
-                at = struct.unpack_from('<I', plain, 100)[0] + address - 0x8000
-                self.assertEqual(expected[at:at + len(before)], before)
-                expected[at:at + len(before)] = after
-            struct.pack_into('<I', expected, 20, header_crc(expected, 156))
-            self.assertEqual(patched, bytes(expected))
+        sha = BACKBUFFER_SHA256
+        patches = (DIMENSION_SWAP, *FORMAT)
+        plain, patched = bytepair_image(self.raw[sha]), patch_code(self.raw[sha], sha, *patches)
+        expected = bytearray(plain)
+        for address, before, after in patches:
+            at = struct.unpack_from('<I', plain, 100)[0] + address - 0x8000
+            self.assertEqual(expected[at:at + len(before)], before)
+            expected[at:at + len(before)] = after
+        struct.pack_into('<I', expected, 20, header_crc(expected, 156))
+        self.assertEqual(patched, bytes(expected))
+        with self.assertRaises(ValueError):
+            patch_code(self.raw[sha][:-1], sha, *patches)
+
+    def test_orientation_stubs_replace_only_unreachable_code(self):
+        notify, display = self.stubs
+        for sha, entry, region, stub, imports in (
+                (ORIENTATION_SHA256, ORIENTATION_ENTRY, ORIENTATION_STUB, notify, ORIENTATION_IMPORTS),
+                (DISPLAY_SHA256, DISPLAY_ENTRY, DISPLAY_STUB, display, ())):
+            plain = bytepair_image(self.raw[sha])
+            patched = patch_stub(self.raw[sha], sha, entry, region, stub, imports)
+            code = struct.unpack_from('<I', plain, 100)[0] - 0x8000
+            changed = {at + 0x8000 - struct.unpack_from('<I', plain, 100)[0]
+                       for at in range(len(plain)) if plain[at] != patched[at]} - set(range(20, 24))
+            allowed = set(range(entry[0], entry[0] + 2)) | set(range(region[0], region[1]))
+            for address, _, _ in imports:
+                allowed |= set(range(address, address + 4))
+            self.assertLessEqual(changed, allowed)
+            self.assertEqual(patched[code + region[0]:code + region[0] + len(stub)], stub)
+            for address, old, new in imports:
+                self.assertEqual(struct.unpack_from('<I', plain, code + address)[0], old)
+                self.assertEqual(struct.unpack_from('<I', patched, code + address)[0], new)
             with self.assertRaises(ValueError):
-                patch_code(self.raw[sha][:-1], sha, *patches)
+                patch_stub(self.raw[sha], sha, entry, region, stub + bytes(region[1] - region[0]))
 
     def test_package_replaces_only_the_targeted_payloads(self):
-        result = adapt_orientation(self.package)
-        expected = {CONFIG_SHA256: 2, ORIENTATION_SHA256: 1, BACKBUFFER_SHA256: 2}
+        result = adapt_orientation(self.package, self.stubs)
+        expected = {CONFIG_SHA256: 2, ORIENTATION_SHA256: 1, DISPLAY_SHA256: 2,
+                    BACKBUFFER_SHA256: 2}
         changed = {}
         for old, new in zip(payloads(self.package), payloads(result), strict=True):
             sha = hashlib.sha256(old).hexdigest()

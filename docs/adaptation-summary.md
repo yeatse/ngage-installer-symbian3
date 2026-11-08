@@ -1,6 +1,6 @@
 # N-Gage 2.0 adaptation for Symbian^3
 
-The delivered version is 1.30(1551), based on the N97 N-Gage 1.30(1541) installer.
+The delivered version is 1.30(1552), based on the N97 N-Gage 1.30(1541) installer.
 User testing on a Nokia 808 Belle FP2 with Install Server and Open4All confirmed
 working gameplay, sound, hardware volume buttons and L/R softkeys. Emulator
 validation used a locally built Linux EKA2L1 with N97 and X7 ROMs.
@@ -51,7 +51,18 @@ lines of a 240×320 buffer. Pinned NGI instructions
 are changed. `ngigameorientation.dll` requests the landscape app UI
 orientation for every game orientation instead of selecting a window-server
 screen mode by configured index, which is device-specific (on a physical 808 it
-selected portrait). `ngibackbuffer.dll` keeps portrait buffer dimensions instead
+selected portrait). Because the window server then stays landscape, the
+display never reported portrait and games that request it after start-up, such
+as Mile High Pinball and Tetris, kept a landscape backbuffer: Mile High Pinball
+stopped at its splash screen and Tetris was drawn off-centre and cut off. A
+source-built Thumb stub in the unused mode-selection code now posts a screen
+device change event to the game's own window group when a request switches
+between portrait and landscape, and `ngidisplay.dll` reports the requested game
+orientation instead of the window server's rotation, so NGI display observers
+recreate a portrait backbuffer. The stub uses two existing window-server
+imports, retargeted to `RWindowGroup::Identifier` and
+`RWsSession::SendEventToWindowGroup`; both stubs are executed on an ARM CPU
+during the build to verify their calls and results. `ngibackbuffer.dll` keeps portrait buffer dimensions instead
 of swapping them, and sizes every 16-bit backbuffer (RGB444, RGB555, RGB565) at two
 bytes per pixel, posting it as `KPostPlatformDependent` with the NGI format value.
 Unpatched, it handled only RGB565 as 16-bit, so Snakes Subsonic's RGB444 picture was
@@ -153,10 +164,10 @@ on Linux and produce unsigned SIS packages. GitHub Actions builds and uploads
 the artifacts. Large installer, SDK and X7 service inputs are cached by SHA-256
 and verified after restoration. Regular builds do not download ROMs or games.
 
-The 34 project checks cover package structure, multi-file components,
+The 35 project checks cover package structure, multi-file components,
 original-input protection, import redirection, component identities, volume
 scaling, the licence-query patch, the memory-pool patch, portrait display
-settings and instructions, and Thumb softkey execution and ABI behavior. Runtime validation covers the N97 baseline,
+settings and instructions, and execution and ABI behavior of the Thumb softkey and orientation stubs. Runtime validation covers the N97 baseline,
 installation and launch inside Games on X7, game menus and gameplay screens,
 and user testing on the physical 808.
 

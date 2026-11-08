@@ -10,7 +10,7 @@ import sys
 from adapt_client import adapt_client, target_component
 from audio_compat import adapt_audio
 from input_compat import adapt_input, compile_softkeys
-from orientation_compat import adapt_orientation
+from orientation_compat import adapt_orientation, compile_orientation
 from component_identity import patch_image, replace_image, header_crc
 from extract_client import extract_client
 from merge_packages import merge_embedded
@@ -114,7 +114,7 @@ def main():
     parent = Package.parse(adapted)
     components = [posting, touch]
     parent = adapt_input(adapt_audio(adapt_licence(parent)), compile_softkeys(sdk, ROOT))
-    parent = adapt_memory(adapt_orientation(parent))
+    parent = adapt_memory(adapt_orientation(parent, compile_orientation(sdk, ROOT)))
     audio_path = compile_native(sdk, 'audio') / 'NgageSoundX.dll'
     audio_image = bytearray(patch_image(audio_path.read_bytes(), 0xe0000964,
                             uid2=0x1000008d, expected_uid1=0x10000079,
