@@ -1,6 +1,6 @@
 # N-Gage 2.0 adaptation for Symbian^3
 
-The delivered version is 1.30(1552), based on the N97 N-Gage 1.30(1541) installer.
+The delivered version is 1.30(1553), based on the N97 N-Gage 1.30(1541) installer.
 User testing on a Nokia 808 Belle FP2 with Install Server and Open4All confirmed
 working gameplay, sound, hardware volume buttons and L/R softkeys. Emulator
 validation used a locally built Linux EKA2L1 with N97 and X7 ROMs.
@@ -26,6 +26,11 @@ process ID, so switching to another app hides controls without ending the servic
 The ordinary package uses the phone's existing installation service. A separate
 package provides installation-service compatibility for the supplied X7 custom
 ROM, avoiding replacement of the existing service on an 808.
+The compatibility files are installed as files of the N-Gage package itself
+rather than as embedded packages, so the phone lists one removable item. When
+upgrading from an earlier build, the installer removes the embedded packages
+that the new N-Gage package no longer contains before checking for overwritten
+files, so their files pass to the N-Gage package.
 
 ## Display and touch controls
 

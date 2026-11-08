@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from component_identity import header_crc, patch_image
 from adapt_client import target_component, SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID
-from merge_packages import merge_embedded
+from merge_packages import merge_files
 from native_package import package_files, single_file
 from sis import Field, Package, array, array_items, fields, sequence
 
@@ -71,14 +71,29 @@ class ComponentTests(unittest.TestCase):
         self.assertEqual(uids, [SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID])
         self.assertEqual(updated.data, original.data)
 
-    def test_embedded_controllers_address_their_own_data_units(self):
-        combined = merge_embedded(package(1), [package(2), package(3)])
-        block = fields(combined.controller.payload)[0]
-        children = array_items(fields(block.payload)[1])
-        indices = [struct.unpack('<I', next(f for f in fields(c.payload) if f.kind == 40).payload)[0]
-                   for c in children]
-        self.assertEqual(indices, [1, 2])
-        self.assertEqual(len(array_items(fields(combined.data.payload)[0])), 3)
+    def test_component_files_join_the_parent_package(self):
+        base = package(1)
+        info = Field(14, sequence([Field(9, struct.pack('<I', 1)), Field(1, b''),
+                                  array(1, [Field(1, b'')])]) + bytes(2))
+        template = Package(base.uid_header, Field(13, info.encode() + base.controller.payload), base.data)
+        parent = package_files(template, [(r'C:\parent.txt', b'parent')], package_uid=1, name='Parent')
+        first = single_file(template, b'first', package_uid=2, name='First', target=r'C:\first.txt')
+        second = package_files(template, [(r'C:\a.txt', b'a'), (r'C:\b.txt', b'b')],
+                               package_uid=3, name='Second')
+        combined = merge_files(parent, [first, second])
+        block = next(f for f in fields(combined.controller.payload) if f.kind == 28)
+        files, embedded, _ = fields(block.payload)
+        self.assertEqual(array_items(embedded), [])
+        descriptions = array_items(files)
+        targets = [fields(d.payload[:-28])[0].payload.decode('utf-16le') for d in descriptions]
+        indices = [struct.unpack_from('<I', d.payload, len(d.payload) - 4)[0] for d in descriptions]
+        self.assertEqual(targets, [r'C:\parent.txt', r'C:\first.txt', r'C:\a.txt', r'C:\b.txt'])
+        self.assertEqual(indices, [0, 1, 2, 3])
+        units = array_items(fields(combined.data.payload)[0])
+        self.assertEqual(len(units), 1)
+        streams = array_items(fields(units[0].payload)[0])
+        self.assertEqual([fields(s.payload)[0].payload[12:] for s in streams],
+                         [b'parent', b'first', b'a', b'b'])
         self.assertEqual(Package.parse(combined.encode()), combined)
 
     def image(self):

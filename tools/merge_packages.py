@@ -18,28 +18,42 @@ def data_units(package):
     return array_items(streams[0])
 
 
-def merge_embedded(parent, children):
+def root_block(package):
+    return fields(next(f for f in fields(package.controller.payload) if f.kind == 28).payload)
+
+
+def merge_files(parent, children):
+    """Install each child's files as part of the parent package instead of an embedded one."""
     parent_fields = fields(parent.controller.payload)
     if next(f for f in parent_fields if f.kind == 40).payload != bytes(4):
         raise ValueError('Parent data unit must be zero')
     units = data_units(parent)
-    controllers = []
+    streams = array_items(fields(units[0].payload)[0])
+    descriptions = []
     for child in children:
         members = fields(child.controller.payload)
-        if next(f for f in members if f.kind == 40).payload != bytes(4):
-            raise ValueError('Child data unit must start at zero')
         if any(f.kind == 39 for f in members):
             raise ValueError('Cannot merge a signed child controller')
-        members = [Field(40, struct.pack('<I', len(units))) if f.kind == 40 else f
-                   for f in members]
-        controllers.append(Field(13, sequence(members)))
-        units.extend(data_units(child))
+        files, embedded, conditions = root_block(child)
+        if array_items(embedded) or array_items(conditions):
+            raise ValueError('Child components must install files unconditionally')
+        child_units = data_units(child)
+        if len(child_units) != 1:
+            raise ValueError('Child components must have one data unit')
+        child_streams = array_items(fields(child_units[0].payload)[0])
+        for description in array_items(files):
+            index = struct.unpack_from('<I', description.payload, len(description.payload) - 4)[0]
+            if index >= len(child_streams):
+                raise ValueError('Child file index outside its data unit')
+            payload = description.payload[:-4] + struct.pack('<I', len(streams) + index)
+            descriptions.append(Field(24, payload))
+        streams = streams + child_streams
+    units[0] = Field(31, array(32, streams).encode())
     def extend(block):
         parts = fields(block.payload)
         if len(parts) != 3:
             raise ValueError('Unexpected installation block layout')
-        old_children = array_items(parts[1])
-        parts[1] = array(13, old_children + controllers)
+        parts[0] = array(24, array_items(parts[0]) + descriptions)
         return Field(28, sequence(parts))
     updated = replace_block(parent, extend)
     result = Package(updated.uid_header, updated.controller,

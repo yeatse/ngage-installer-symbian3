@@ -13,7 +13,7 @@ from input_compat import adapt_input, compile_softkeys
 from orientation_compat import adapt_orientation, compile_orientation
 from component_identity import patch_image, replace_image, header_crc
 from extract_client import extract_client
-from merge_packages import merge_embedded
+from merge_packages import merge_files
 from installserver_compat import adapt_server
 from licence_compat import adapt_licence
 from memory_compat import adapt_memory
@@ -127,7 +127,7 @@ def main():
     components.append(recognizer_component(sdk, touch))
     # Ordinary hacked phones already supply InstallServer. The X7 CFW backend
     # is a separate package variant; replacing a running SWI service is unsafe.
-    result = merge_embedded(parent, components).encode()
+    result = merge_files(parent, components).encode()
     args.output.mkdir(parents=True, exist_ok=True)
     target = args.output / 'ngage-installer-symbian3.sis'
     target.write_bytes(result)
@@ -156,7 +156,7 @@ def main():
                    'touch_install_autostart': False, 'touch_lifetime': 'owning game process'})
     (args.output / 'build-report.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'Built {target}: {report}')
-    x7 = merge_embedded(parent, [server, *components]).encode()
+    x7 = merge_files(parent, [server, *components]).encode()
     x7_target = args.output / 'ngage-installer-x7-custom-rom.sis'
     x7_target.write_bytes(x7)
     x7_report = dict(report, sha256=hashlib.sha256(x7).hexdigest(), bytes=len(x7),
