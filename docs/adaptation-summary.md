@@ -146,9 +146,14 @@ directory.
 
 A source-built ECOM recognizer, `ngdatrecognizer.dll`, assigns
 `application/x-ngage-data` to `.ngdat` names with probable confidence, without
-reading the file. A DRM recognizer still claims protected DCF content with
-certainty. The DLL's capabilities are ALL-TCB, so it loads into the recognition
-server.
+reading the file. Worms World Party hit the same failure with the `.dir` and
+`.dat` archives it opens through `ngifileaccess.dll`: the failed open left the
+archive unloaded and Quick Game crashed with KERN-EXEC 3. The recognizer
+therefore also claims any other file under `\private\` with possible
+confidence. Recognizers that identify the content, including the DRM
+recognizer for protected DCF files, still win with higher confidence. The 5320
+runs the S60v3 client and did not show either problem. The DLL's capabilities
+are ALL-TCB, so it loads into the recognition server.
 
 ## Licence status
 

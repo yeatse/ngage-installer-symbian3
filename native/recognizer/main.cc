@@ -1,5 +1,5 @@
 // Recognizes plaintext N-Gage game data so CAF's F32 agent can report a MIME
-// type for it; protected DCF files are still claimed with certainty by DRM.
+// type for it; protected DCF files and known formats still outrank these claims.
 #include <apmrec.h>
 #include <ecom/implementationproxy.h>
 
@@ -10,6 +10,7 @@ namespace {
 
 const TUid KRecognizerUid = {static_cast<TInt>(0xe0000966)};
 _LIT(KExtension, ".ngdat");
+_LIT(KPrivatePath, "\\private\\");
 _LIT8(KDataType, "application/x-ngage-data");
 
 class CNgageDataRecognizer : public CApaDataRecognizerType {
@@ -27,6 +28,11 @@ private:
         if (aName.Length() >= KExtension().Length()
                 && aName.Right(KExtension().Length()).CompareF(KExtension) == 0) {
             iConfidence = EProbable;
+            iDataType = TDataType(KDataType);
+        } else if (aName.FindF(KPrivatePath) != KErrNotFound) {
+            // Only the owning process can read a private file, so no other recognizer
+            // can inspect it; game assets such as .dir and .dat archives land here.
+            iConfidence = EPossible;
             iDataType = TDataType(KDataType);
         }
     }
