@@ -12,27 +12,39 @@ extern "C" void __cxa_pure_virtual() { User::Invariant(); }
 extern "C" void _E32Startup();
 
 namespace {
+// Instances are only compared by address: games may delete DevSound through its
+// virtual destructor, so a remembered instance is never dereferenced.
+struct Applied { TAny* sound; TUint generation; };
 struct State {
     RLibrary library;
     RLibrary callback_pin;
-    TAny* sound = nullptr;
     TInt legacy = 0;
     TInt hardware_level = -1;
+    TUint generation = 0;
+    TUint next_slot = 0;
+    Applied applied[8] = {};
     bool remote_attempted = false;
     Ngage::VolumeReceiver* remote = nullptr;
 };
-void ApplyHardwareVolume(State& state) {
-    if (state.sound && state.hardware_level >= 0) {
-        using Getter = TInt (*)(TAny*);
-        using Setter = void (*)(TAny*, TInt);
-        const auto maximum = reinterpret_cast<Getter>(state.library.Lookup(34));
-        const auto setter = reinterpret_cast<Setter>(state.library.Lookup(37));
-        if (maximum && setter) {
-            const TInt limit = maximum(state.sound);
-            const TInt applied = Ngage::ScaleLegacyVolume(state.hardware_level, limit);
-            setter(state.sound, applied);
-        }
-    }
+Applied* Find(State& state, TAny* sound) {
+    for (auto& entry : state.applied) if (entry.sound == sound) return &entry;
+    auto& entry = state.applied[state.next_slot++ % 8];
+    entry = { sound, state.generation - 1 };
+    return &entry;
+}
+TInt DeviceVolume(State& state, TAny* sound, TInt legacy) {
+    using Getter = TInt (*)(TAny*);
+    const auto maximum = reinterpret_cast<Getter>(state.library.Lookup(34));
+    return maximum ? Ngage::ScaleLegacyVolume(legacy, maximum(sound)) : legacy;
+}
+// Runs while the game is calling into this instance, so it is alive.
+void ApplyHardwareVolume(State& state, TAny* sound) {
+    Applied* entry = Find(state, sound);
+    if (state.hardware_level < 0 || entry->generation == state.generation) return;
+    entry->generation = state.generation;
+    using Setter = void (*)(TAny*, TInt);
+    const auto setter = reinterpret_cast<Setter>(state.library.Lookup(37));
+    if (setter) setter(sound, DeviceVolume(state, sound, state.hardware_level));
 }
 void ChangeVolume(TAny* context, TInt direction) {
     auto& state = *static_cast<State*>(context);
@@ -41,7 +53,7 @@ void ChangeVolume(TAny* context, TInt direction) {
     if (level < 0) level = 0;
     if (level > 10) level = 10;
     state.hardware_level = level;
-    ApplyHardwareVolume(state);
+    ++state.generation;
 }
 State& Session() {
     auto* state = static_cast<State*>(UserSvr::DllTls(reinterpret_cast<TInt>(&_E32Startup), 0xe0000964));
@@ -59,13 +71,9 @@ State& Session() {
 }
 extern "C" TLibraryFunction AudioResolve(TInt ordinal, TInt* args) {
     auto& state = Session();
-    // Stop (28) and the destructors (38-40) end the instance the volume keys address.
-    if ((ordinal == 28 || (ordinal >= 38 && ordinal <= 40)) && state.sound == reinterpret_cast<TAny*>(args[0]))
-        state.sound = nullptr;
-    if (ordinal == 35 || ordinal == 33) state.sound = reinterpret_cast<TAny*>(args[0]);
-    if (ordinal == 35) ApplyHardwareVolume(state);
+    auto* sound = reinterpret_cast<TAny*>(args[0]);
+    if (ordinal == 33 || ordinal == 35) ApplyHardwareVolume(state, sound);
     if (ordinal == 37) {
-        state.sound = reinterpret_cast<TAny*>(args[0]);
         if (args[1] != state.legacy || args[1] == 0) state.hardware_level = -1;
         state.legacy = args[1];
         if (!state.remote_attempted) {
@@ -76,12 +84,8 @@ extern "C" TLibraryFunction AudioResolve(TInt ordinal, TInt* args) {
                 if (!state.remote) state.callback_pin.Close();
             }
         }
-        using Getter = TInt (*)(TAny*);
-        const auto getter = reinterpret_cast<Getter>(state.library.Lookup(34));
-        if (getter) {
-            const TInt maximum = getter(reinterpret_cast<TAny*>(args[0]));
-            args[1] = Ngage::ScaleLegacyVolume(state.hardware_level < 0 ? args[1] : state.hardware_level, maximum);
-        }
+        Find(state, sound)->generation = state.generation;
+        args[1] = DeviceVolume(state, sound, state.hardware_level < 0 ? args[1] : state.hardware_level);
     }
     const auto entry = state.library.Lookup(ordinal);
     if (!entry) User::Panic(_L("NgageAudio"), KErrNotFound);

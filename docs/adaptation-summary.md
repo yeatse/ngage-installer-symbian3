@@ -1,6 +1,6 @@
 # N-Gage 2.0 adaptation for Symbian^3
 
-The delivered version is 1.30(1553), based on the N97 N-Gage 1.30(1541) installer.
+The delivered version is 1.30(1554), based on the N97 N-Gage 1.30(1541) installer.
 User testing on a Nokia 808 Belle FP2 with Install Server and Open4All confirmed
 working gameplay, sound, hardware volume buttons and L/R softkeys. Emulator
 validation used a locally built Linux EKA2L1 with N97 and X7 ROMs.
@@ -102,11 +102,14 @@ The bridge scales the legacy 0–10 range to the actual device range: for exampl
 7 becomes 7000. On a maximum-10 backend it stays 7, and mute stays zero.
 
 A RemCon Core API target in the game's audio thread supports hardware volume
-click, press and release actions with bounded hold repeat. It adjusts the active
-DevSound instance directly. The bridge handles pause/resume and changes to the
-game's own volume setting, clears the instance reference on Stop and destruction, and keeps the
-callback DLL loaded while receivers exist to avoid dangling object or code
-references.
+click, press and release actions with bounded hold repeat. A key press only
+records the new level; the bridge applies it to each DevSound instance the next
+time the game calls PlayData or PlayInitL on that instance. NGI deletes DevSound
+through its virtual destructor, which never passes through the bridge, so a
+remembered instance could already be freed when a key arrives; adjusting it
+directly made Tetris exit with KERN-EXEC 0 on the 808. The bridge handles
+changes to the game's own volume setting and keeps the callback DLL loaded while
+receivers exist to avoid dangling code references.
 
 ## Game memory pools
 
