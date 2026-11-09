@@ -135,6 +135,21 @@ Symbian^3 `RHybridHeap`:
 Both changes are applied only to the pinned DLL image and are verified by hash
 and instruction bytes.
 
+## DRM content size
+
+Tomb Raider Underworld ended with KERN-EXEC 3 at Lara's first dialog. The game
+sizes `lara.ani`, an OMA DRM v2 file with unencrypted content, with
+`Seek(1, end)` on `ngifileaccess.dll`, then allocates and reads the result plus
+one byte. The library forwards this to `CData::Seek(ESeekEnd, pos)`. On the X7
+the Symbian^3 OMA agent returned position 1 instead of the content length, so
+the game read 2 bytes and parsed the uninitialised remainder of its buffer as
+animation records, corrupting its memory pool.
+
+The pinned library now resolves end-relative seeks itself: it adds the offset to
+the content size it already obtained from `DataSizeL` when opening the file,
+clamps the result to that size (the agent does not clamp absolute positions) and
+issues an `ESeekStart` seek. Start and current-relative seeks are unchanged.
+
 ## Game data recognition
 
 Dogz, Dirk Dagger, Metal Gear Solid Mobile and Resident Evil Degeneration

@@ -17,6 +17,7 @@ from merge_packages import merge_files
 from installserver_compat import adapt_server
 from licence_compat import adapt_licence
 from memory_compat import adapt_memory
+from fileaccess_compat import adapt_fileaccess
 from native_package import package_files, single_file
 from sis import Package
 
@@ -114,7 +115,7 @@ def main():
     parent = Package.parse(adapted)
     components = [posting, touch]
     parent = adapt_input(adapt_audio(adapt_licence(parent)), compile_softkeys(sdk, ROOT))
-    parent = adapt_memory(adapt_orientation(parent, compile_orientation(sdk, ROOT)))
+    parent = adapt_fileaccess(adapt_memory(adapt_orientation(parent, compile_orientation(sdk, ROOT))))
     audio_path = compile_native(sdk, 'audio') / 'NgageSoundX.dll'
     audio_image = bytearray(patch_image(audio_path.read_bytes(), 0xe0000964,
                             uid2=0x1000008d, expected_uid1=0x10000079,
@@ -145,6 +146,7 @@ def main():
                    'native_softkey_mapping': True,
                    'audio_volume_compatibility': True,
                    'hybrid_heap_memory_pools': True,
+                   'drm_content_end_seek': True,
                    'game_data_recognizer': True,
                    'missing_rights_licence_status': 'full',
                    'guest_install_service': 'existing phone installation service',
