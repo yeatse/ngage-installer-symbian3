@@ -147,12 +147,27 @@ files.
 
 Instead, the NGI `runtime.dll` that every game statically imports now imports
 `ngheap.dll` in place of `estlib.dll`. The only ESTLIB import, `CloseSTDLIB`, is
-forwarded unchanged. When the process attaches, `ngheap.dll` creates a heap in
-an ordinary local chunk of the original heap's maximum size. A heap in a
-non-disconnected chunk is Doug Lea-only. `ngheap.dll` then switches the main
-thread to it. Cells allocated before the switch are still freed by the original
-heap. The heap exposes its chunk through `iHandles` (with a zero handle count),
-which the memory-pool ownership check above reads.
+forwarded unchanged. When the process attaches, `ngheap.dll` switches the main
+thread to a Doug Lea heap placed inside the original heap's own chunk:
+
+- In a disconnected chunk, `RHybridHeap` sits in the middle and keeps the
+  lower half for its page allocator. That half is still unused when the
+  process attaches, because only a few small cells exist and slabs start after
+  64 KB of allocations. The new heap fills it with a non-zero offset, which
+  makes it Doug Lea-only. A heap in a separate chunk did not work: Snakes
+  Subsonic crashed when its heap addresses were above 64 MB, and a new local
+  chunk lands after the 34 MB thread heap and Open C heap reservations.
+- The heap is fully committed, like a fixed-size heap. With a growing heap,
+  Snakes Subsonic read memory that the heap had already returned to the
+  kernel.
+- Cells allocated before the switch are still freed by the original heap. If
+  one of them grows, it moves to the new heap, so the original heap never
+  allocates again.
+- The heap exposes its chunk through `iHandles` with a zero handle count, which
+  the memory-pool ownership check above reads.
+
+If the original heap is already Doug Lea-only, or the new heap cannot be
+committed, the game keeps its original heap.
 
 Only the import name in the two pinned `runtime.dll` copies changes; the code is
 verified to be identical.

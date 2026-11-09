@@ -5,7 +5,11 @@
 extern "C" void __cxa_pure_virtual() { User::Invariant(); }
 
 namespace {
-// Cells allocated before the switch stay owned by the original heap.
+struct HeapChunk : RHeap {
+    static TInt Handle(const RHeap& heap) { return static_cast<const HeapChunk&>(heap).iChunkHandle; }
+};
+
+// Cells allocated before the switch stay owned by the original heap, which never grows again.
 class LegacyHeap : public RHeap {
 public:
     LegacyHeap(RHeap* original, RHeap* heap, TInt chunk, TUint8* base, TInt max_length)
@@ -25,10 +29,19 @@ public:
     TAny* Alloc(TInt size) override { return heap_->Alloc(size); }
     void Free(TAny* cell) override { if (cell) Owner(cell)->Free(cell); }
     TAny* ReAlloc(TAny* cell, TInt size, TInt mode) override {
-        return (cell ? Owner(cell) : heap_)->ReAlloc(cell, size, mode);
+        if (!cell || Owner(cell) == heap_) return heap_->ReAlloc(cell, size, mode);
+        const TInt length = original_->AllocLen(cell);
+        if (size <= length) return original_->ReAlloc(cell, size, mode);
+        if (mode & ENeverMove) return nullptr;
+        TAny* moved = heap_->Alloc(size);
+        if (moved) {
+            Mem::Copy(moved, cell, length);
+            original_->Free(cell);
+        }
+        return moved;
     }
     TInt AllocLen(const TAny* cell) const override { return Owner(cell)->AllocLen(cell); }
-    TInt Compress() override { return heap_->Compress() + original_->Compress(); }
+    TInt Compress() override { return heap_->Compress(); }
     void Reset() override { heap_->Reset(); }
     TInt AllocSize(TInt& total) const override {
         TInt own = 0, inherited = 0;
@@ -55,23 +68,26 @@ private:
 };
 
 // Symbian^3's hybrid heap serves large cells from fresh pages; games written for the
-// S60 3rd Edition RHeap can depend on reused memory. A heap in a non-disconnected chunk
-// is Doug Lea-only.
+// S60 3rd Edition RHeap can depend on reused memory. The hybrid heap keeps the lower half
+// of its chunk for those pages, so a Doug Lea heap there keeps the game's low addresses.
+// It is fully committed, like a fixed-size heap: games also read freed memory past its top.
 void Install() {
     RHeap& original = User::Heap();
-    const TInt max_length = original.MaxLength();
     RChunk chunk;
-    if (chunk.CreateLocal(0, max_length) != KErrNone) return;
-    RHeap* heap = UserHeap::ChunkHeap(chunk, 0, 0x1000, max_length, 0, EFalse,
-                                      UserHeap::EChunkHeapDuplicate);
+    chunk.SetHandle(HeapChunk::Handle(original));
+    const TInt page = 0x1000;
+    const TInt length = reinterpret_cast<TUint8*>(&original) - chunk.Base() - page;
+    if (length < page) return;  // already a Doug Lea-only heap
+    // A non-zero offset makes the heap Doug Lea-only.
+    RHeap* heap = UserHeap::OffsetChunkHeap(chunk, length, page, page, length, 0, EFalse,
+                                            UserHeap::EChunkHeapDuplicate);
     TAny* memory = heap ? heap->Alloc(sizeof(LegacyHeap)) : nullptr;
     if (!memory) {
         if (heap) heap->Close();
-        chunk.Close();
         return;
     }
-    User::SwitchAllocator(new (memory) LegacyHeap(&original, heap, chunk.Handle(), chunk.Base(),
-                                                  chunk.MaxSize()));
+    User::SwitchAllocator(new (memory) LegacyHeap(&original, heap, HeapChunk::Handle(*heap),
+                                                  chunk.Base() + page, length));
 }
 }
 
