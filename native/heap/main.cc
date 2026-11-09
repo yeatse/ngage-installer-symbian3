@@ -70,6 +70,7 @@ private:
 // Games known to depend on the S60 3rd Edition heap; others keep the hybrid heap.
 const TUint32 KLegacyHeapGames[] = {
     0x2000AFE4,  // Brothers In Arms
+    0x2000B4B6,  // DChoc Cafe Solitaire 12-pack
 };
 
 bool NeedsLegacyHeap() {
