@@ -169,6 +169,11 @@ thread to a Doug Lea heap placed inside the original heap's own chunk:
 If the original heap is already Doug Lea-only, or the new heap cannot be
 committed, the game keeps its original heap.
 
+The switch applies only to games listed by secure ID in `ngheap.dll`, currently
+Brothers In Arms. Applied to every game, Snakes Subsonic sometimes crashed on a
+null virtual table after creating its audio buffer chunk. Other games run
+correctly on the hybrid heap.
+
 Only the import name in the two pinned `runtime.dll` copies changes; the code is
 verified to be identical.
 

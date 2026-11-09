@@ -67,6 +67,17 @@ private:
     TInt chunk_;
 };
 
+// Games known to depend on the S60 3rd Edition heap; others keep the hybrid heap.
+const TUint32 KLegacyHeapGames[] = {
+    0x2000AFE4,  // Brothers In Arms
+};
+
+bool NeedsLegacyHeap() {
+    const TUint32 sid = RProcess().SecureId();
+    for (const TUint32 game : KLegacyHeapGames) if (game == sid) return true;
+    return false;
+}
+
 // Symbian^3's hybrid heap serves large cells from fresh pages; games written for the
 // S60 3rd Edition RHeap can depend on reused memory. The hybrid heap keeps the lower half
 // of its chunk for those pages, so a Doug Lea heap there keeps the game's low addresses.
@@ -92,7 +103,7 @@ void Install() {
 }
 
 extern "C" TInt NgageHeapEntry(TInt reason) {
-    if (reason == 2) Install();
+    if (reason == 2 && NeedsLegacyHeap()) Install();
     return KErrNone;
 }
 
