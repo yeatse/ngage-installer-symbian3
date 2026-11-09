@@ -18,6 +18,7 @@ from installserver_compat import adapt_server
 from licence_compat import adapt_licence
 from memory_compat import adapt_memory
 from fileaccess_compat import adapt_fileaccess
+from heap_compat import adapt_heap
 from native_package import package_files, single_file
 from sis import Package
 
@@ -77,6 +78,19 @@ def component(sdk, name, executable, uid, **identity):
     return replace_image(package, raw, patch_image(raw, uid, **identity))
 
 
+def native_dll(sdk, template, project, name, uid, package_uid, title):
+    """A DLL that replaces an import of version 10.0 inside NGI components."""
+    path = compile_native(sdk, project) / (name + '.dll')
+    # Imported by game processes; a DLL's capabilities must cover its importers'.
+    image = bytearray(patch_image(path.read_bytes(), uid, uid2=0x1000008d,
+                                  expected_uid1=0x10000079, expected_uid2=0x1000008d,
+                                  capabilities=0xffffe))
+    struct.pack_into('<I', image, 24, 0x000a0000)
+    struct.pack_into('<I', image, 20, header_crc(image, 156))
+    return single_file(template, bytes(image), package_uid=package_uid, name=title,
+                       target='C:\\sys\\bin\\' + name + '.dll')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sdk', type=Path, required=True)
@@ -116,15 +130,11 @@ def main():
     components = [posting, touch]
     parent = adapt_input(adapt_audio(adapt_licence(parent)), compile_softkeys(sdk, ROOT))
     parent = adapt_fileaccess(adapt_memory(adapt_orientation(parent, compile_orientation(sdk, ROOT))))
-    audio_path = compile_native(sdk, 'audio') / 'NgageSoundX.dll'
-    audio_image = bytearray(patch_image(audio_path.read_bytes(), 0xe0000964,
-                            uid2=0x1000008d, expected_uid1=0x10000079,
-                            expected_uid2=0x1000008d, capabilities=0xffffe))
-    struct.pack_into('<I', audio_image, 24, 0x000a0000)
-    struct.pack_into('<I', audio_image, 20, header_crc(audio_image, 156))
-    components.append(single_file(touch, bytes(audio_image), package_uid=0xe0000965,
-                                 name='N-Gage native audio compatibility',
-                                 target=r'C:\sys\bin\NgageSoundX.dll'))
+    parent = adapt_heap(parent)
+    components.append(native_dll(sdk, touch, 'audio', 'NgageSoundX', 0xe0000964, 0xe0000965,
+                                 'N-Gage native audio compatibility'))
+    components.append(native_dll(sdk, touch, 'heap', 'ngheap', 0xe0000968, 0xe0000969,
+                                 'N-Gage legacy thread heap compatibility'))
     components.append(recognizer_component(sdk, touch))
     # Ordinary hacked phones already supply InstallServer. The X7 CFW backend
     # is a separate package variant; replacing a running SWI service is unsafe.
@@ -146,6 +156,7 @@ def main():
                    'native_softkey_mapping': True,
                    'audio_volume_compatibility': True,
                    'hybrid_heap_memory_pools': True,
+                   'legacy_thread_heap': True,
                    'drm_content_end_seek': True,
                    'game_data_recognizer': True,
                    'missing_rights_licence_status': 'full',

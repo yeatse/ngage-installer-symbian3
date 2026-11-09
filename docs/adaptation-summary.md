@@ -135,6 +135,28 @@ Symbian^3 `RHybridHeap`:
 Both changes are applied only to the pinned DLL image and are verified by hash
 and instruction bytes.
 
+## Legacy thread heap
+
+Brothers In Arms crashed while loading on Symbian^3 but not on S60 3rd Edition.
+The Symbian^3 `RHybridHeap` serves cells of 64 KB and more from freshly
+committed pages and small cells from a slab allocator, while the S60 3rd
+Edition `RHeap` is a single Doug Lea heap that reuses freed memory. The game
+depends on the old allocation pattern. Giving the game executable a fixed-size
+heap (which makes `RHybridHeap` Doug Lea-only) fixed it, but that edits game
+files.
+
+Instead, the NGI `runtime.dll` that every game statically imports now imports
+`ngheap.dll` in place of `estlib.dll`. The only ESTLIB import, `CloseSTDLIB`, is
+forwarded unchanged. When the process attaches, `ngheap.dll` creates a heap in
+an ordinary local chunk of the original heap's maximum size. A heap in a
+non-disconnected chunk is Doug Lea-only. `ngheap.dll` then switches the main
+thread to it. Cells allocated before the switch are still freed by the original
+heap. The heap exposes its chunk through `iHandles` (with a zero handle count),
+which the memory-pool ownership check above reads.
+
+Only the import name in the two pinned `runtime.dll` copies changes; the code is
+verified to be identical.
+
 ## DRM content size
 
 Tomb Raider Underworld ended with KERN-EXEC 3 at Lara's first dialog. The game
