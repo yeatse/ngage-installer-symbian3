@@ -46,3 +46,21 @@ jobs:
           name: ngage-installer-symbian3-unsigned
           path: artifacts/
           if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: installer
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ngage-installer-symbian3-unsigned
+          path: artifacts
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" artifacts/ngage-installer-symbian3.sis \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
+            --notes "Install ngage-installer-symbian3.sis on a hacked Symbian^3 or Belle phone. See the README for instructions and known issues."
