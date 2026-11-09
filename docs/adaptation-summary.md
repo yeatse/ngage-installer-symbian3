@@ -169,9 +169,8 @@ thread to a Doug Lea heap placed inside the original heap's own chunk:
 If the original heap is already Doug Lea-only, or the new heap cannot be
 committed, the game keeps its original heap.
 
-The switch applies only to games listed by secure ID in `ngheap.dll`: Brothers In Arms
-and DChoc Café Solitaire 12-pack, which still ended with KERN-EXEC 3 at startup
-on the Nokia 808. Applied to every game, Snakes Subsonic sometimes crashed on a
+The switch applies only to games listed by secure ID in `ngheap.dll`, currently
+Brothers In Arms. Applied to every game, Snakes Subsonic sometimes crashed on a
 null virtual table after creating its audio buffer chunk. Other games run
 correctly on the hybrid heap.
 
