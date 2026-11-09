@@ -44,6 +44,7 @@ FORMAT = (
     (0xef78, bytes.fromhex('01c841e2'), bytes.fromhex('ffc001e2')),
 )
 DISPLAY = '/hardware/graphics/displays/0'
+DISPLAY_CONFIGURATIONS = DISPLAY + '/configurations'
 ORIENTATIONS = DISPLAY + '/ngageorientations'
 BACKBUFFERS = '/hardware/graphics/backbuffer/configurations/'
 USER_OPTIONS = 3
@@ -137,6 +138,31 @@ def sections(entries):
     return result
 
 
+def add_portrait_configurations(entries, config):
+    """Portrait games pick a display configuration of the native portrait size and quit without one."""
+    configurations = config[DISPLAY_CONFIGURATIONS]
+    count_entry = configurations['configurationscount']
+    count, parent = count_entry[3], count_entry[0] & 0xffff0000
+    width, height = config[DISPLAY]['nativewidth'][3], config[DISPLAY]['nativeheight'][3]
+    existing = [config[f'{DISPLAY_CONFIGURATIONS}/{index}'] for index in range(count)]
+    formats = [values['colorformat'][3] for values in existing]
+    if any((values['width'][3], values['height'][3]) == (width, height) for values in existing):
+        raise ValueError('Expected no portrait display configuration')
+    used, section, added = {key >> 16 for key, _, _, _ in entries}, 0, []
+    for colorformat in sorted(set(formats), key=formats.index):
+        while section in used:
+            section += 1
+        used.add(section)
+        key = section << 16
+        added += [[key, 0, 2, f'{DISPLAY_CONFIGURATIONS}/{count}'], [key + 1, 0, 0, parent],
+                  [key + 2, 0, 2, 'width'], [key + 3, 0, 0, width],
+                  [key + 4, 0, 2, 'height'], [key + 5, 0, 0, height],
+                  [key + 6, 0, 2, 'colorformat'], [key + 7, 0, 0, colorformat]]
+        count += 1
+    count_entry[3] = count
+    return sorted(entries + added, key=lambda entry: entry[0])
+
+
 def patch_config(raw):
     if hashlib.sha256(raw).hexdigest() != CONFIG_SHA256:
         raise ValueError('Unexpected NGI display configuration')
@@ -155,6 +181,7 @@ def patch_config(raw):
             display['nativeheight'][3], display['nativewidth'][3]
     options = config[ORIENTATIONS]
     options['useroptions'][3] = USER_OPTIONS
+    entries = add_portrait_configurations(entries, config)
     scaled = 0
     for path, values in config.items():
         if not path.startswith(BACKBUFFERS) or values['orientationtype'][3] != PORTRAIT:

@@ -52,7 +52,15 @@ class OrientationCompatibilityTests(unittest.TestCase):
     def test_portrait_backbuffers_fill_height_and_are_centred(self):
         original = sections(parse_cre(self.raw[CONFIG_SHA256])[1])
         patched = sections(parse_cre(patch_config(self.raw[CONFIG_SHA256]))[1])
-        self.assertEqual(patched.keys(), original.keys())
+        added = {f'/hardware/graphics/displays/0/configurations/{index}': (240, 320, colorformat)
+                 for index, colorformat in ((4, 65552), (5, 262176))}
+        self.assertEqual(patched.keys(), original.keys() | added.keys())
+        for path, (width, height, colorformat) in added.items():
+            values = patched[path]
+            self.assertEqual((values['width'][3], values['height'][3], values['colorformat'][3]),
+                             (width, height, colorformat))
+        configurations = patched['/hardware/graphics/displays/0/configurations']
+        self.assertEqual(configurations['configurationscount'][3], 6)
         display = patched['/hardware/graphics/displays/0']
         self.assertEqual((display['nativewidth'][3], display['nativeheight'][3]), (240, 320))
         options = patched['/hardware/graphics/displays/0/ngageorientations']

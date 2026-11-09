@@ -52,7 +52,10 @@ N97 display configuration selected on Symbian^3. That configuration enables the
 portrait option and scales portrait backbuffers to the screen height. It also reports the native
 display as 240×320, matching its portrait orientation at angle 0; games such as
 Reset Generation lay out for the native size and otherwise draw only the top 240
-lines of a 240×320 buffer. Pinned NGI instructions
+lines of a 240×320 buffer. The N97 configuration lists only landscape display
+configurations, so it also gains 240×320 ones in both of its colour formats; games such
+as Space Impact Kappa Base look for a display configuration of the portrait native size
+and quit right after start-up without one. Pinned NGI instructions
 are changed. `ngigameorientation.dll` requests the landscape app UI
 orientation for every game orientation instead of selecting a window-server
 screen mode by configured index, which is device-specific (on a physical 808 it
