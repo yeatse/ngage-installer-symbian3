@@ -10,7 +10,7 @@ The [Build unsigned Symbian installer](https://github.com/yeatse/ngage-installer
 workflow uses [symbian-platform](https://github.com/hpnkv/symbian-platform) 0.3.0
 to compile the ARM components from source and produce unsigned SIS packages.
 Outputs are uploaded as the `ngage-installer-symbian3-unsigned` artifact.
-Pushing a `v*` tag also publishes `ngage-installer-symbian3.sis` as a GitHub release.
+Pushing a `v*` tag, or running the workflow manually with a release tag, also publishes `ngage-installer-symbian3.sis` as a GitHub release.
 
 Large inputs are cached individually by SHA-256 and verified after every restore.
 A cache hit makes no request to the source server. Regular builds do not download
