@@ -10,7 +10,7 @@ DChoc Café Solitaire 12-pack.
 
 ## Before you start
 
-- Your phone must be hacked, with **Install Server** and **Open4All** enabled.
+- Your phone must be hacked, with **Install Server** enabled and **Open4All** disabled.
 - Games are not included. You need your own `.n-gage` game files.
 
 ## Install
@@ -33,9 +33,6 @@ the phone.
 ## Known issues
 
 - **DChoc Café Solitaire 12-pack** exits with KERN-EXEC 3 right after starting.
-- **Reset Generation** can show a black screen or exit with KERN-EXEC 3 while
-  Open4All is on. Turn Open4All off before playing; it is only needed while
-  installing.
 
 ## More
 
