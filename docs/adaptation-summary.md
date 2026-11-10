@@ -76,6 +76,17 @@ bytes per pixel, posting it as `KPostPlatformDependent` with the NGI format valu
 Unpatched, it handled only RGB565 as 16-bit, so Snakes Subsonic's RGB444 picture was
 posted as RGBx888 and appeared colour-shifted and doubled side by side.
 
+DChoc Café Solitaire ended with KERN-EXEC 3 at start-up on a physical 808. It
+requests portrait while it is still initialising and pumps display events until
+the display change arrives. `ngidisplay.dll` also tells display observers when
+the focused game window becomes visible, and on the 808 that event is queued
+ahead of the display change; the game's handler then uses objects it has not
+created yet. A third stub, in the window-server rotation query that the display
+stub leaves unreachable, drops that notification once when the requested
+orientation is portrait. Landscape games and later notifications are unaffected.
+The crash was located with a temporary sampling probe on the phone, because the
+emulator delivers the visibility event later.
+
 Translucent square controls provide a five-way pad on the left, R/A/B/L from top
 to bottom on the right, and hide/show at the upper left. Input handling tracks
 holds, repeats and multiple pointers, and releases keys when controls are hidden
@@ -240,7 +251,7 @@ and verified after restoration. Regular builds do not download ROMs or games.
 The 35 project checks cover package structure, multi-file components,
 original-input protection, import redirection, component identities, volume
 scaling, the licence-query patch, the memory-pool patch, portrait display
-settings and instructions, and execution and ABI behavior of the Thumb softkey and orientation stubs. Runtime validation covers the N97 baseline,
+settings and instructions, and execution and ABI behavior of the Thumb softkey, orientation and visibility stubs. Runtime validation covers the N97 baseline,
 installation and launch inside Games on X7, game menus and gameplay screens,
 and user testing on the physical 808.
 

@@ -15,6 +15,7 @@ from extract_client import extract_client
 from merge_packages import data_units
 from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP, DISPLAY_ENTRY,
                                 DISPLAY_SHA256, DISPLAY_STUB, FORMAT, ORIENTATION_ENTRY,
+                                VISIBLE_ENTRY, VISIBLE_STUB,
                                 ORIENTATION_IMPORTS, ORIENTATION_SHA256, ORIENTATION_STUB,
                                 adapt_orientation, build_cre, compile_orientation, parse_cre,
                                 patch_code, patch_config, patch_stub, sections)
@@ -90,7 +91,7 @@ class OrientationCompatibilityTests(unittest.TestCase):
             patch_code(self.raw[sha][:-1], sha, *patches)
 
     def test_orientation_stubs_replace_only_unreachable_code(self):
-        notify, display = self.stubs
+        notify, display, visible = self.stubs
         for sha, entry, region, stub, imports in (
                 (ORIENTATION_SHA256, ORIENTATION_ENTRY, ORIENTATION_STUB, notify, ORIENTATION_IMPORTS),
                 (DISPLAY_SHA256, DISPLAY_ENTRY, DISPLAY_STUB, display, ())):
@@ -109,6 +110,24 @@ class OrientationCompatibilityTests(unittest.TestCase):
                 self.assertEqual(struct.unpack_from('<I', patched, code + address)[0], new)
             with self.assertRaises(ValueError):
                 patch_stub(self.raw[sha], sha, entry, region, stub + bytes(region[1] - region[0]))
+
+    def test_visible_stub_shares_the_display_library(self):
+        _, display, visible = self.stubs
+        raw = self.raw[DISPLAY_SHA256]
+        plain = bytepair_image(raw)
+        single = patch_stub(raw, DISPLAY_SHA256, DISPLAY_ENTRY, DISPLAY_STUB, display)
+        both = patch_stub(raw, DISPLAY_SHA256, DISPLAY_ENTRY, DISPLAY_STUB, display,
+                          more=((VISIBLE_ENTRY, VISIBLE_STUB, visible),))
+        offset = struct.unpack_from('<I', plain, 100)[0] - 0x8000
+        changed = {at - offset for at in range(len(single)) if single[at] != both[at]}
+        self.assertLessEqual(changed, set(range(VISIBLE_ENTRY[0], VISIBLE_ENTRY[0] + 2))
+                             | set(range(*VISIBLE_STUB)) | {at - offset for at in range(20, 24)})
+        start = offset + VISIBLE_STUB[0]
+        self.assertEqual(both[start:start + len(visible)], visible)
+        self.assertLessEqual(len(visible), VISIBLE_STUB[1] - VISIBLE_STUB[0])
+        with self.assertRaises(ValueError):
+            patch_stub(raw, DISPLAY_SHA256, DISPLAY_ENTRY, DISPLAY_STUB, display,
+                       more=((VISIBLE_ENTRY, VISIBLE_STUB, visible + bytes(4)),))
 
     def test_package_replaces_only_the_targeted_payloads(self):
         result = adapt_orientation(self.package, self.stubs)

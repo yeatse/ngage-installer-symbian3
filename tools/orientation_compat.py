@@ -27,6 +27,11 @@ ORIENTATION_IMPORTS = ((0x85d4, 398, 389), (0x85dc, 414, 45))
 DISPLAY_ENTRY = 0x8a6c, bytes.fromhex('6846')
 DISPLAY_STUB = 0x8ac0, 0x8afa
 DISPLAY_SYMBOLS = {'ngage_runtime_interface': 0x97d8, 'ngage_display_map': 0x8a93}
+# The observers' window-visible notification is dropped once after a portrait request; the stub
+# replaces the window-server rotation query that DISPLAY_ENTRY leaves unreachable.
+VISIBLE_ENTRY = 0x8e74, bytes.fromhex('1fe0')
+VISIBLE_STUB = 0x8a70, 0x8a92
+VISIBLE_SYMBOLS = {'ngage_display_skip': 0x8ec1, 'ngage_display_notify': 0x8eb7}
 # Portrait backbuffers keep their own width and height instead of being swapped to landscape.
 DIMENSION_SWAP = 0xd3e4, struct.pack('<I', 0x1a000010), struct.pack('<I', 0xea000020)
 # Every 16-bit backbuffer (RGB444, RGB555 and RGB565, low byte 0x10) is two bytes per pixel and is
@@ -243,9 +248,11 @@ def compile_stub(sdk, root, name, address, symbols):
 
 def compile_orientation(sdk, root):
     stubs = (compile_stub(sdk, root, 'notify', ORIENTATION_STUB[0], ORIENTATION_SYMBOLS),
-             compile_stub(sdk, root, 'display', DISPLAY_STUB[0], DISPLAY_SYMBOLS))
+             compile_stub(sdk, root, 'display', DISPLAY_STUB[0], DISPLAY_SYMBOLS),
+             compile_stub(sdk, root, 'visible', VISIBLE_STUB[0], VISIBLE_SYMBOLS))
     verify_notify(stubs[0])
     verify_display(stubs[1])
+    verify_visible(stubs[2])
     return stubs
 
 
@@ -335,6 +342,29 @@ def verify_display(stub):
             raise ValueError('Display orientation mismatch')
 
 
+def verify_visible(stub):
+    from unicorn.arm_const import UC_ARM_REG_R4
+    this, table, query = 0x30100, 0x30140, 0x30200
+    for pending, orientation, delivered in ((4, 1, False), (4, 4, False), (4, 2, True),
+                                            (4, 8, True), (0, 1, True)):
+        queried = []
+        def current(cpu, r0, r1, r2):
+            if (r0, r1, r2) != (this, 0x31800 + 0x28, 0x31800 + 0x24):
+                raise ValueError('Wrong display orientation query')
+            queried.append(r0)
+            cpu.mem_write(r2, struct.pack('<I', orientation))
+            return 0
+        vtable = bytearray(0x28)
+        struct.pack_into('<I', vtable, 0x24, query | 1)
+        stop = VISIBLE_SYMBOLS['ngage_display_notify' if delivered else 'ngage_display_skip'] & ~1
+        cpu = run_stub(stub, VISIBLE_STUB[0], stop, {UC_ARM_REG_R4: this}, {query: current},
+                       ((this, struct.pack('<I', table)), (this + 0x68, struct.pack('<I', pending)),
+                        (table, bytes(vtable))))
+        left = struct.unpack('<I', cpu.mem_read(this + 0x68, 4))[0]
+        if left != (pending if delivered else 0) or len(queried) != (1 if pending else 0):
+            raise ValueError('Visible notification mismatch')
+
+
 def code_relocations(image):
     relocation = struct.unpack_from('<I', image, 104)[0]
     if not relocation:
@@ -352,23 +382,26 @@ def code_relocations(image):
     return result
 
 
-def patch_stub(raw, expected_sha, entry, region, stub, imports=()):
-    """Branch from entry to a stub that replaces the unreachable code in region."""
-    start, end = region
-    if len(stub) > end - start or any(start - 3 <= at < end for at in
-                                      code_relocations(bytepair_image(raw))):
-        raise ValueError('Orientation stub does not fit its code region')
-    patches = [(entry[0], entry[1], thumb_branch(entry[0], start))]
+def patch_stub(raw, expected_sha, entry, region, stub, imports=(), more=()):
+    """Branch from entry to a stub that replaces the unreachable code in region.
+
+    more lists further (entry, region, stub) replacements in the same image."""
     plain = bytepair_image(raw)
-    at = struct.unpack_from('<I', plain, 100)[0] + start - CODE_BASE
-    patches.append((start, plain[at:at + len(stub)], stub))
+    relocations = code_relocations(plain)
+    patches = []
+    for entry, (start, end), stub in ((entry, region, stub), *more):
+        if len(stub) > end - start or any(start - 3 <= at < end for at in relocations):
+            raise ValueError('Orientation stub does not fit its code region')
+        patches.append((entry[0], entry[1], thumb_branch(entry[0], start)))
+        at = struct.unpack_from('<I', plain, 100)[0] + start - CODE_BASE
+        patches.append((start, plain[at:at + len(stub)], stub))
     patches += [(address, struct.pack('<I', old), struct.pack('<I', new))
                 for address, old, new in imports]
     return patch_code(raw, expected_sha, *patches)
 
 
 def adapt_orientation(package, stubs):
-    notify, display = stubs
+    notify, display, visible = stubs
     package = replace_images(package, CONFIG_SHA256, patch_config, '20001079.cre',
                              variants=True)
     package = replace_images(package, ORIENTATION_SHA256,
@@ -377,7 +410,8 @@ def adapt_orientation(package, stubs):
                              'ngigameorientation.dll', copies=1)
     package = replace_images(package, DISPLAY_SHA256,
                              lambda raw: patch_stub(raw, DISPLAY_SHA256, DISPLAY_ENTRY,
-                                                    DISPLAY_STUB, display),
+                                                    DISPLAY_STUB, display,
+                                                    more=((VISIBLE_ENTRY, VISIBLE_STUB, visible),)),
                              'ngidisplay.dll')
     return replace_images(package, BACKBUFFER_SHA256,
                           lambda raw: patch_code(raw, BACKBUFFER_SHA256, DIMENSION_SWAP,
