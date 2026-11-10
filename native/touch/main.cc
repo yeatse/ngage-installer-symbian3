@@ -4,6 +4,7 @@
 #include <w32std.h>
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <memory>
 #include "../common/touch_service.h"
 
@@ -34,8 +35,13 @@ static_assert(EKeyDevice0 == 0xf842 && EKeyDevice1 == 0xf843);
 static_assert(EStdKeyEnter == 0x03 && EStdKeyBackspace == 0x01);
 
 constexpr int kButtonCount = kBindings.size();
-constexpr int kToggle = kButtonCount;
-constexpr int kWindowCount = kButtonCount + 1;
+enum : int { kUp, kLeft, kOk, kRight, kDown, kPadButtons };
+// One window holds the whole pad, so a touch can slide between directions and rest on a diagonal.
+constexpr int kPad = 0;
+constexpr int kToggle = kButtonCount - kPadButtons + 1;
+constexpr int kWindowCount = kToggle + 1;
+constexpr unsigned Bit(int button) { return 1u << button; }
+constexpr int WindowButton(int window) { return window + kPadButtons - 1; }
 
 struct ScopedWsSession : RWsSession {
     ~ScopedWsSession() { Close(); }
@@ -52,7 +58,11 @@ class Controls {
     RTimer timer_;
     std::array<std::unique_ptr<RWindow>, kWindowCount> windows_;
     std::array<TRect, kWindowCount> bounds_;
-    std::array<int, 16> pointers_;
+    // Buttons each pointer holds; a pad touch that started on OK stays there until it leaves.
+    std::array<unsigned, 16> pointers_{};
+    std::array<bool, 16> on_ok_{};
+    TPoint pad_center_;
+    int unit_ = 0;
     std::array<int, kButtonCount> held_{};
     std::array<unsigned, kButtonCount> repeat_at_{};
     CFont* font_ = nullptr;
@@ -98,7 +108,7 @@ class Controls {
             if (held_[i]) Send(i, EEventKeyUp);
             held_[i] = 0;
         }
-        pointers_.fill(-1);
+        pointers_.fill(0);
     }
 
     void Visible() {
@@ -117,35 +127,59 @@ class Controls {
         const int unit = std::clamp(std::min(size.iWidth, size.iHeight) / 7, 28, 48);
         const int y = (size.iHeight - 3 * unit) / 2;
         const int x = 6;
-        bounds_[0] = TRect(x + unit, y, x + 2 * unit, y + unit);
-        bounds_[1] = TRect(x, y + unit, x + unit, y + 2 * unit);
-        bounds_[2] = TRect(x + unit, y + unit, x + 2 * unit, y + 2 * unit);
-        bounds_[3] = TRect(x + 2 * unit, y + unit, x + 3 * unit, y + 2 * unit);
-        bounds_[4] = TRect(x + unit, y + 2 * unit, x + 2 * unit, y + 3 * unit);
+        unit_ = unit;
+        pad_center_ = TPoint(x + unit * 3 / 2, y + unit * 3 / 2);
+        // The pad accepts touches a little beyond its drawn cross.
+        const int slop = unit / 3;
+        bounds_[kPad] = TRect(0, y - slop, x + 3 * unit + slop, y + 3 * unit + slop);
         const int right = size.iWidth - unit - 8;
-        bounds_[5] = TRect(right, y + unit / 2, right + unit, y + unit * 3 / 2);
-        bounds_[6] = TRect(right, y + unit * 3 / 2 + 8, right + unit, y + unit * 5 / 2 + 8);
-        bounds_[7] = TRect(right, size.iHeight - unit - 8, right + unit, size.iHeight - 8);
-        bounds_[8] = TRect(right, 8, right + unit, 8 + unit);
+        bounds_[1] = TRect(right, y + unit / 2, right + unit, y + unit * 3 / 2);
+        bounds_[2] = TRect(right, y + unit * 3 / 2 + 8, right + unit, y + unit * 5 / 2 + 8);
+        bounds_[3] = TRect(right, size.iHeight - unit - 8, right + unit, size.iHeight - 8);
+        bounds_[4] = TRect(right, 8, right + unit, 8 + unit);
         bounds_[kToggle] = TRect(6, 8, 38, 40);
         for (int i = 0; i < kWindowCount; ++i) windows_[i]->SetExtent(bounds_[i].iTl, bounds_[i].Size());
         Visible();
     }
 
-    void Press(int pointer, int button) {
-        const int old = pointers_[pointer];
-        if (old == button) return;
-        if (old >= 0 && old < kButtonCount && --held_[old] == 0) {
-            Send(old, EEventKeyUp);
-            windows_[old]->Invalidate();
+    static int ButtonWindow(int button) { return button < kPadButtons ? kPad : button - kPadButtons + 1; }
+
+    void Press(int pointer, unsigned buttons) {
+        const unsigned old = pointers_[pointer];
+        if (old == buttons) return;
+        pointers_[pointer] = buttons;
+        for (int i = 0; i < kButtonCount; ++i) {
+            if ((old & ~buttons & Bit(i)) && --held_[i] == 0) {
+                Send(i, EEventKeyUp);
+                windows_[ButtonWindow(i)]->Invalidate();
+            }
         }
-        pointers_[pointer] = button;
-        if (button >= 0 && button < kButtonCount && held_[button]++ == 0) {
-            Send(button, EEventKeyDown);
-            Send(button, EEventKey);
-            repeat_at_[button] = clock_ + 4;
-            windows_[button]->Invalidate();
+        for (int i = 0; i < kButtonCount; ++i) {
+            if ((buttons & ~old & Bit(i)) && held_[i]++ == 0) {
+                Send(i, EEventKeyDown);
+                Send(i, EEventKey);
+                repeat_at_[i] = clock_ + 4;
+                windows_[ButtonWindow(i)]->Invalidate();
+            }
         }
+    }
+
+    // Eight directions by angle from the pad centre; a diagonal holds both of its keys.
+    unsigned PadButtons(int pointer, const TPoint& position, bool down) {
+        const int dx = position.iX - pad_center_.iX, dy = position.iY - pad_center_.iY;
+        const int ax = std::abs(dx), ay = std::abs(dy), reach = std::max(ax, ay);
+        if (down) on_ok_[pointer] = reach < unit_ / 2;
+        // OK needs a touch that starts on it; sliding through the centre keeps the direction.
+        if (on_ok_[pointer]) {
+            if (reach < unit_ * 3 / 4) return Bit(kOk);
+            on_ok_[pointer] = false;
+        }
+        if (reach < unit_ / 4) return pointers_[pointer] & ~Bit(kOk);
+        unsigned buttons = 0;
+        // tan(22.5 degrees) is about 5/12.
+        if (ay * 12 > ax * 5) buttons |= Bit(dy < 0 ? kUp : kDown);
+        if (ax * 12 > ay * 5) buttons |= Bit(dx < 0 ? kLeft : kRight);
+        return buttons;
     }
 
     void Pointer(const TWsEvent& event) {
@@ -155,7 +189,7 @@ class Controls {
         const int number = pointer->PointerNumber();
         if (number < 0 || number >= static_cast<int>(pointers_.size())) return;
         if (pointer->iType == TPointerEvent::EButton1Up) {
-            Press(number, -1);
+            Press(number, 0);
             return;
         }
         if (pointer->iType != TPointerEvent::EButton1Down && pointer->iType != TPointerEvent::EDrag) return;
@@ -166,11 +200,27 @@ class Controls {
             return;
         }
         if (hidden_) return;
-        TPoint position = bounds_[index].iTl + pointer->iPosition;
-        int hit = -1;
-        for (int i = 0; i < kButtonCount; ++i) if (bounds_[i].Contains(position)) hit = i;
-        if (pointer->iType == TPointerEvent::EButton1Down) windows_[index]->ClaimPointerGrab(number);
-        Press(number, hit);
+        const TPoint position = bounds_[index].iTl + pointer->iPosition;
+        const bool down = pointer->iType == TPointerEvent::EButton1Down;
+        if (down) windows_[index]->ClaimPointerGrab(number);
+        if (index == kPad) {
+            Press(number, PadButtons(number, position, down));
+        } else if (down) {
+            Press(number, Bit(WindowButton(index)));
+        } else if (!bounds_[index].Contains(position)) {
+            Press(number, 0);
+        }
+    }
+
+    void Cell(int button, const TRect& area) {
+        gc_->SetPenStyle(CGraphicsContext::ENullPen);
+        gc_->SetBrushColor(held_[button] ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
+        gc_->DrawRect(area);
+        gc_->SetPenStyle(CGraphicsContext::ESolidPen);
+        gc_->UseFont(font_);
+        const TInt baseline = (area.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
+        gc_->DrawText(Text(kBindings[button].label), area, baseline, CGraphicsContext::ECenter, 0);
+        gc_->DiscardFont();
     }
 
     void Draw(int index, const TRect& rectangle) {
@@ -181,23 +231,26 @@ class Controls {
         gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
         gc_->SetBrushColor(TRgb(0, 0, 0, 0));
         gc_->Clear();
-        const bool pressed = index < kButtonCount && held_[index];
-        gc_->SetBrushColor(pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
-        const TRect area(TPoint(1, 1), bounds_[index].Size() - TSize(2, 2));
-        gc_->DrawRect(area);
-        gc_->SetPenStyle(CGraphicsContext::ESolidPen);
         gc_->SetPenColor(TRgb(255, 255, 255, 240));
-        if (index == kToggle) {
+        const TRect area(TPoint(1, 1), bounds_[index].Size() - TSize(2, 2));
+        if (index == kPad) {
+            static constexpr int kColumn[kPadButtons] = {1, 0, 1, 2, 1}, kRow[kPadButtons] = {0, 1, 1, 1, 2};
+            const TPoint origin = pad_center_ - bounds_[kPad].iTl - TPoint(unit_ * 3 / 2, unit_ * 3 / 2);
+            for (int i = 0; i < kPadButtons; ++i) {
+                const TPoint corner = origin + TPoint(kColumn[i] * unit_ + 1, kRow[i] * unit_ + 1);
+                Cell(i, TRect(corner, TSize(unit_ - 2, unit_ - 2)));
+            }
+        } else if (index == kToggle) {
+            gc_->SetBrushColor(TRgb(24, 32, 40, 140));
+            gc_->DrawRect(area);
+            gc_->SetPenStyle(CGraphicsContext::ESolidPen);
             const TPoint center(bounds_[index].Width() / 2, bounds_[index].Height() / 2);
             gc_->SetPenSize(TSize(2, 2));
             gc_->DrawLine(TPoint(center.iX - 6, center.iY), TPoint(center.iX + 7, center.iY));
             if (hidden_) gc_->DrawLine(TPoint(center.iX, center.iY - 6), TPoint(center.iX, center.iY + 7));
             gc_->SetPenSize(TSize(1, 1));
         } else {
-            gc_->UseFont(font_);
-            const TInt baseline = (area.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
-            gc_->DrawText(Text(kBindings[index].label), area, baseline, CGraphicsContext::ECenter, 0);
-            gc_->DiscardFont();
+            Cell(WindowButton(index), area);
         }
         window.EndRedraw();
         gc_->Deactivate();
@@ -225,7 +278,7 @@ class Controls {
     }
 
 public:
-    Controls() { pointers_.fill(-1); }
+    Controls() = default;
     int Run(TProcessId game_id) {
         TInt result = game_.Open(game_id);
         if (result != KErrNone) return result;

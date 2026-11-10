@@ -92,6 +92,13 @@ to bottom on the right, and hide/show at the upper left. Input handling tracks
 holds, repeats and multiple pointers, and releases keys when controls are hidden
 or focus changes to prevent stuck keys.
 
+The pad is a single window that reads the direction from the angle between the
+touch and the pad centre, in eight 45° sectors; a diagonal holds both of its
+arrow keys. A touch can slide from one direction to another without lifting,
+keeps tracking after it leaves the drawn cross, and keeps its direction while
+it crosses the centre. OK needs a touch that starts on the centre cell; sliding
+off it turns the touch into a direction.
+
 A and B send Enter and Backspace, the primary and secondary action keys of
 the N97 NGI input profile that Symbian^3 selects. That profile has no keypad
 digits, so phone-keypad keys such as 5 and 7 reach the game unmapped.
