@@ -3,8 +3,7 @@
 Nokia N97's N-Gage 2.0 (version 1.30), adapted for hacked Symbian^3 and Belle
 phones, with on-screen touch controls.
 
-Tested on a **Nokia 808 Belle**: every game tested so far runs, except
-DChoc Café Solitaire 12-pack.
+Tested on a **Nokia 808 Belle**: every game tested so far runs.
 
 ![In-game touch controls](docs/images/game-controls.png)
 
@@ -29,10 +28,6 @@ the phone.
 - A five-way pad is on the left; R, A, B and L are on the right.
 - The button at the upper left hides or shows the controls.
 - The phone's volume keys change the game volume.
-
-## Known issues
-
-- **DChoc Café Solitaire 12-pack** exits with KERN-EXEC 3 right after starting.
 
 ## More
 

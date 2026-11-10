@@ -85,7 +85,7 @@ created yet. A third stub, in the window-server rotation query that the display
 stub leaves unreachable, drops that notification once when the requested
 orientation is portrait. Landscape games and later notifications are unaffected.
 The crash was located with a temporary sampling probe on the phone, because the
-emulator delivers the visibility event later.
+emulator delivers the visibility event later; the fix was confirmed on the 808.
 
 Translucent square controls provide a five-way pad on the left, R/A/B/L from top
 to bottom on the right, and hide/show at the upper left. Input handling tracks
