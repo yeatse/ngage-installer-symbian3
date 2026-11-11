@@ -1,33 +1,29 @@
 #include <e32std.h>
 #include <e32keys.h>
-#include <gdi.h>
 #include <w32std.h>
 #include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <memory>
+#include <e32property.h>
+#include "../common/touch_controls.h"
 #include "../common/touch_service.h"
 
 namespace {
-TPtrC Text(const char16_t* text) {
-    return TPtrC(reinterpret_cast<const TUint16*>(text));
-}
-
 struct Binding {
     TInt scan;
     TInt code;
-    const char16_t* label;
 };
 constexpr std::array<Binding, 9> kBindings{{
-    {EStdKeyUpArrow, EKeyUpArrow, u"↑"},
-    {EStdKeyLeftArrow, EKeyLeftArrow, u"←"},
-    {EStdKeyDevice3, EKeyDevice3, u"OK"},
-    {EStdKeyRightArrow, EKeyRightArrow, u"→"},
-    {EStdKeyDownArrow, EKeyDownArrow, u"↓"},
+    {EStdKeyUpArrow, EKeyUpArrow},
+    {EStdKeyLeftArrow, EKeyLeftArrow},
+    {EStdKeyDevice3, EKeyDevice3},
+    {EStdKeyRightArrow, EKeyRightArrow},
+    {EStdKeyDownArrow, EKeyDownArrow},
     // Primary/secondary action keys of the N97 NGI input profile that Symbian^3 selects.
-    {EStdKeyEnter, EKeyEnter, u"A"}, {EStdKeyBackspace, EKeyBackspace, u"B"},
-    {EStdKeyDevice0, EKeyDevice0, u"L"},
-    {EStdKeyDevice1, EKeyDevice1, u"R"}
+    {EStdKeyEnter, EKeyEnter}, {EStdKeyBackspace, EKeyBackspace},
+    {EStdKeyDevice0, EKeyDevice0},
+    {EStdKeyDevice1, EKeyDevice1}
 }};
 
 static_assert(EStdKeyDevice0 == 0xa4 && EStdKeyDevice1 == 0xa5);
@@ -35,13 +31,8 @@ static_assert(EKeyDevice0 == 0xf842 && EKeyDevice1 == 0xf843);
 static_assert(EStdKeyEnter == 0x03 && EStdKeyBackspace == 0x01);
 
 constexpr int kButtonCount = kBindings.size();
-enum : int { kUp, kLeft, kOk, kRight, kDown, kPadButtons };
-// One window holds the whole pad, so a touch can slide between directions and rest on a diagonal.
-constexpr int kPad = 0;
-constexpr int kToggle = kButtonCount - kPadButtons + 1;
-constexpr int kWindowCount = kToggle + 1;
+static_assert(kButtonCount == Ngage::kTouchButtons);
 constexpr unsigned Bit(int button) { return 1u << button; }
-constexpr int WindowButton(int window) { return window + kPadButtons - 1; }
 
 struct ScopedWsSession : RWsSession {
     ~ScopedWsSession() { Close(); }
@@ -53,20 +44,21 @@ class Controls {
     TRequestStatus game_exit_;
     bool watching_game_ = false;
     std::unique_ptr<CWsScreenDevice> screen_;
-    std::unique_ptr<CWindowGc> gc_;
     RWindowGroup group_;
     RTimer timer_;
-    std::array<std::unique_ptr<RWindow>, kWindowCount> windows_;
-    std::array<TRect, kWindowCount> bounds_;
+    // A single pixel that captures every touch; the posting surface draws the controls.
+    std::unique_ptr<RWindow> capture_;
+    RProperty state_;
+    bool state_defined_ = false;
+    TInt published_ = -1;
+    Ngage::TouchLayout layout_{TSize(0, 0)};
     // Buttons each pointer holds; a pad touch that started on OK stays there until it leaves.
     std::array<unsigned, 16> pointers_{};
     std::array<bool, 16> on_ok_{};
-    TPoint pad_center_;
-    int unit_ = 0;
+    std::array<int, 16> origin_{};
     std::array<int, kButtonCount> held_{};
     std::array<unsigned, kButtonCount> repeat_at_{};
-    CFont* font_ = nullptr;
-    TRequestStatus events_, redraws_, tick_;
+    TRequestStatus events_, tick_;
     TSize size_{0, 0};
     TInt target_ = 0;
     TInt last_focus_ = -1;
@@ -74,6 +66,7 @@ class Controls {
     bool active_ = false;
     bool hidden_ = false;
     bool requests_ = false;
+    enum : int { kNowhere = -1, kPad = -2 };
 
     bool GameHasFocus(TInt focus) {
         TThreadId id;
@@ -103,19 +96,28 @@ class Controls {
         ws_.SendEventToWindowGroup(target_, event);
     }
 
+    void Publish() {
+        TInt value = (active_ ? Ngage::kTouchActive : 0) | (hidden_ ? Ngage::kTouchHidden : 0);
+        for (int i = 0; i < kButtonCount; ++i) if (held_[i]) value |= Bit(i);
+        if (value == published_ || !state_.Handle()) return;
+        published_ = value;
+        state_.Set(value);
+    }
+
     void ReleaseAll() {
         for (int i = 0; i < kButtonCount; ++i) {
             if (held_[i]) Send(i, EEventKeyUp);
             held_[i] = 0;
         }
         pointers_.fill(0);
+        Publish();
     }
 
     void Visible() {
-        for (int i = 0; i < kWindowCount; ++i) {
-            windows_[i]->SetVisible(active_ && (i == kToggle || !hidden_));
-            if (active_) windows_[i]->Invalidate();
-        }
+        capture_->SetVisible(active_);
+        capture_->SetPointerCapture(active_ ? RWindowBase::TCaptureFlagEnabled | RWindowBase::TCaptureFlagAllGroups
+                                            : RWindowBase::TCaptureDisabled);
+        Publish();
     }
 
     void Layout() {
@@ -124,151 +126,78 @@ class Controls {
         if (size == size_) return;
         ReleaseAll();
         size_ = size;
-        const int unit = std::clamp(std::min(size.iWidth, size.iHeight) / 7, 28, 48);
-        const int y = (size.iHeight - 3 * unit) / 2;
-        const int x = 6;
-        unit_ = unit;
-        pad_center_ = TPoint(x + unit * 3 / 2, y + unit * 3 / 2);
-        // The game cannot draw under any window, so the pad has no transparent margin.
-        bounds_[kPad] = TRect(x, y, x + 3 * unit, y + 3 * unit);
-        const int right = size.iWidth - unit - 8;
-        bounds_[1] = TRect(right, y + unit / 2, right + unit, y + unit * 3 / 2);
-        bounds_[2] = TRect(right, y + unit * 3 / 2 + 8, right + unit, y + unit * 5 / 2 + 8);
-        bounds_[3] = TRect(right, size.iHeight - unit - 8, right + unit, size.iHeight - 8);
-        bounds_[4] = TRect(right, 8, right + unit, 8 + unit);
-        bounds_[kToggle] = TRect(6, 8, 38, 40);
-        for (int i = 0; i < kWindowCount; ++i) windows_[i]->SetExtent(bounds_[i].iTl, bounds_[i].Size());
-        Visible();
+        layout_ = Ngage::TouchLayout(size);
     }
-
-    static int ButtonWindow(int button) { return button < kPadButtons ? kPad : button - kPadButtons + 1; }
 
     void Press(int pointer, unsigned buttons) {
         const unsigned old = pointers_[pointer];
         if (old == buttons) return;
         pointers_[pointer] = buttons;
         for (int i = 0; i < kButtonCount; ++i) {
-            if ((old & ~buttons & Bit(i)) && --held_[i] == 0) {
-                Send(i, EEventKeyUp);
-                windows_[ButtonWindow(i)]->Invalidate();
-            }
+            if ((old & ~buttons & Bit(i)) && --held_[i] == 0) Send(i, EEventKeyUp);
         }
         for (int i = 0; i < kButtonCount; ++i) {
             if ((buttons & ~old & Bit(i)) && held_[i]++ == 0) {
                 Send(i, EEventKeyDown);
                 Send(i, EEventKey);
                 repeat_at_[i] = clock_ + 4;
-                windows_[ButtonWindow(i)]->Invalidate();
             }
         }
+        Publish();
     }
 
     // Eight directions by angle from the pad centre; a diagonal holds both of its keys.
     unsigned PadButtons(int pointer, const TPoint& position, bool down) {
-        const int dx = position.iX - pad_center_.iX, dy = position.iY - pad_center_.iY;
+        const int unit = layout_.unit;
+        const int dx = position.iX - layout_.pad_center.iX, dy = position.iY - layout_.pad_center.iY;
         const int ax = std::abs(dx), ay = std::abs(dy), reach = std::max(ax, ay);
-        if (down) on_ok_[pointer] = reach < unit_ / 2;
+        if (down) on_ok_[pointer] = reach < unit / 2;
         // OK needs a touch that starts on it; sliding through the centre keeps the direction.
         if (on_ok_[pointer]) {
-            if (reach < unit_ * 3 / 4) return Bit(kOk);
+            if (reach < unit * 3 / 4) return Bit(Ngage::kTouchOk);
             on_ok_[pointer] = false;
         }
-        if (reach < unit_ / 4) return pointers_[pointer] & ~Bit(kOk);
+        if (reach < unit / 4) return pointers_[pointer] & ~Bit(Ngage::kTouchOk);
         unsigned buttons = 0;
         // tan(22.5 degrees) is about 5/12.
-        if (ay * 12 > ax * 5) buttons |= Bit(dy < 0 ? kUp : kDown);
-        if (ax * 12 > ay * 5) buttons |= Bit(dx < 0 ? kLeft : kRight);
+        if (ay * 12 > ax * 5) buttons |= Bit(dy < 0 ? Ngage::kTouchUp : Ngage::kTouchDown);
+        if (ax * 12 > ay * 5) buttons |= Bit(dx < 0 ? Ngage::kTouchLeft : Ngage::kTouchRight);
         return buttons;
     }
 
     void Pointer(const TWsEvent& event) {
-        const int index = event.Handle() - 2;
-        if (index < 0 || index >= kWindowCount || !active_) return;
+        if (!active_) return;
         const auto* pointer = event.Pointer();
         const int number = pointer->PointerNumber();
         if (number < 0 || number >= static_cast<int>(pointers_.size())) return;
         if (pointer->iType == TPointerEvent::EButton1Up) {
             Press(number, 0);
+            origin_[number] = kNowhere;
             return;
         }
-        if (pointer->iType != TPointerEvent::EButton1Down && pointer->iType != TPointerEvent::EDrag) return;
-        if (index == kToggle && pointer->iType == TPointerEvent::EButton1Down) {
-            ReleaseAll();
-            hidden_ = !hidden_;
-            Visible();
-            return;
-        }
-        if (hidden_) return;
-        const TPoint position = bounds_[index].iTl + pointer->iPosition;
         const bool down = pointer->iType == TPointerEvent::EButton1Down;
-        if (down) windows_[index]->ClaimPointerGrab(number);
-        if (index == kPad) {
-            Press(number, PadButtons(number, position, down));
-        } else if (down) {
-            Press(number, Bit(WindowButton(index)));
-        } else if (!bounds_[index].Contains(position)) {
-            Press(number, 0);
-        }
-    }
-
-    void Fill(bool pressed, const TRect& area) {
-        gc_->SetPenStyle(CGraphicsContext::ENullPen);
-        gc_->SetBrushColor(pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
-        gc_->DrawRect(area);
-        gc_->SetPenStyle(CGraphicsContext::ESolidPen);
-    }
-
-    void Cell(int button, const TRect& area) {
-        Fill(held_[button], area);
-        gc_->UseFont(font_);
-        const TInt baseline = (area.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
-        gc_->DrawText(Text(kBindings[button].label), area, baseline, CGraphicsContext::ECenter, 0);
-        gc_->DiscardFont();
-    }
-
-    void Draw(int index, const TRect& rectangle) {
-        auto& window = *windows_[index];
-        gc_->Activate(window);
-        window.BeginRedraw(rectangle);
-        gc_->SetPenStyle(CGraphicsContext::ENullPen);
-        gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
-        // Only this mode stores the zero alpha; blending would leave the cleared area opaque.
-        gc_->SetDrawMode(CGraphicsContext::EDrawModeWriteAlpha);
-        gc_->SetBrushColor(TRgb(0, 0, 0, 0));
-        gc_->Clear();
-        gc_->SetDrawMode(CGraphicsContext::EDrawModePEN);
-        gc_->SetPenColor(TRgb(255, 255, 255, 240));
-        const TRect area(TPoint(1, 1), bounds_[index].Size() - TSize(2, 2));
-        if (index == kPad) {
-            static constexpr int kColumn[kPadButtons] = {1, 0, 1, 2, 1}, kRow[kPadButtons] = {0, 1, 1, 1, 2};
-            const TSize cell(unit_ - 2, unit_ - 2);
-            for (int i = 0; i < kPadButtons; ++i)
-                Cell(i, TRect(TPoint(kColumn[i] * unit_ + 1, kRow[i] * unit_ + 1), cell));
-            // A corner is its two arrows held together, marked with a tick pointing outwards.
-            for (int i = 0; i < 4; ++i) {
-                const int column = i & 1, row = i >> 1;
-                const TRect area(TPoint(column * 2 * unit_ + 1, row * 2 * unit_ + 1), cell);
-                Fill(held_[row ? kDown : kUp] && held_[column ? kRight : kLeft], area);
-                const TPoint middle = area.Center();
-                const int tick = unit_ / 6, sx = column ? tick : -tick, sy = row ? tick : -tick;
-                gc_->DrawLine(middle - TPoint(sx, sy), middle + TPoint(sx, sy));
-                gc_->DrawLine(middle + TPoint(sx, sy), middle + TPoint(sx, -sy / 3));
-                gc_->DrawLine(middle + TPoint(sx, sy), middle + TPoint(-sx / 3, sy));
+        if (!down && pointer->iType != TPointerEvent::EDrag) return;
+        // The capture window is at the screen origin, so its coordinates are the screen's.
+        const TPoint position = pointer->iPosition;
+        if (down) {
+            origin_[number] = kNowhere;
+            if (layout_.toggle.Contains(position)) {
+                ReleaseAll();
+                hidden_ = !hidden_;
+                Publish();
+                return;
             }
-        } else if (index == kToggle) {
-            gc_->SetBrushColor(TRgb(24, 32, 40, 140));
-            gc_->DrawRect(area);
-            gc_->SetPenStyle(CGraphicsContext::ESolidPen);
-            const TPoint center(bounds_[index].Width() / 2, bounds_[index].Height() / 2);
-            gc_->SetPenSize(TSize(2, 2));
-            gc_->DrawLine(TPoint(center.iX - 6, center.iY), TPoint(center.iX + 7, center.iY));
-            if (hidden_) gc_->DrawLine(TPoint(center.iX, center.iY - 6), TPoint(center.iX, center.iY + 7));
-            gc_->SetPenSize(TSize(1, 1));
-        } else {
-            Cell(WindowButton(index), area);
+            if (hidden_) return;
+            if (layout_.PadArea().Contains(position)) origin_[number] = kPad;
+            for (int i = Ngage::kTouchPadButtons; i < kButtonCount; ++i)
+                if (layout_.buttons[i].Contains(position)) origin_[number] = i;
         }
-        window.EndRedraw();
-        gc_->Deactivate();
+        const int origin = origin_[number];
+        if (origin == kPad) {
+            Press(number, PadButtons(number, position, down));
+        } else if (origin >= 0) {
+            Press(number, layout_.buttons[origin].Contains(position) ? Bit(origin) : 0);
+        }
     }
 
     void Poll() {
@@ -306,30 +235,31 @@ public:
         if (result != KErrNone) return result;
         screen_ = std::make_unique<CWsScreenDevice>(ws_);
         if ((result = screen_->Construct()) != KErrNone) return result;
-        gc_ = std::make_unique<CWindowGc>(screen_.get());
-        if ((result = gc_->Construct()) != KErrNone) return result;
         group_ = RWindowGroup(ws_);
         if ((result = group_.Construct(1, EFalse)) != KErrNone) return result;
         group_.EnableReceiptOfFocus(EFalse);
         group_.SetOrdinalPosition(0, 500);
-        if ((result = screen_->GetNearestFontInTwips(font_, TFontSpec(Text(u"Nokia Sans S60"), 240))) != KErrNone) return result;
-        for (int i = 0; i < kWindowCount; ++i) {
-            windows_[i] = std::make_unique<RWindow>(ws_);
-            if ((result = windows_[i]->Construct(group_, i + 2)) != KErrNone) return result;
-            windows_[i]->SetRequiredDisplayMode(EColor16MA);
-            if ((result = windows_[i]->SetTransparencyAlphaChannel()) != KErrNone) return result;
-            windows_[i]->SetBackgroundColor(TRgb(0, 0, 0, 0));
-            windows_[i]->EnableAdvancedPointers();
-            // Windows do not receive drag events unless the filter is cleared.
-            windows_[i]->PointerFilter(EPointerFilterDrag, 0);
-            windows_[i]->SetPointerGrab(ETrue);
-            windows_[i]->SetVisible(EFalse);
-            windows_[i]->Activate();
-        }
+        capture_ = std::make_unique<RWindow>(ws_);
+        if ((result = capture_->Construct(group_, 2)) != KErrNone) return result;
+        capture_->SetExtent(TPoint(0, 0), TSize(1, 1));
+        capture_->EnableAdvancedPointers();
+        // Windows do not receive drag events unless the filter is cleared.
+        capture_->PointerFilter(EPointerFilterDrag, 0);
+        capture_->SetVisible(EFalse);
+        capture_->Activate();
+        const TUid category = {static_cast<TInt32>(Ngage::kTouchServiceSid)};
+        const TUint key = static_cast<TUint>(game_id.Id());
+        static _LIT_SECURITY_POLICY_PASS(read_policy);
+        static _LIT_SECURITY_POLICY_S0(write_policy, Ngage::kTouchServiceSid);
+        result = RProperty::Define(category, key, RProperty::EInt, read_policy, write_policy);
+        if (result != KErrNone && result != KErrAlreadyExists) return result;
+        state_defined_ = true;
+        if ((result = state_.Attach(category, key)) != KErrNone) return result;
+        origin_.fill(kNowhere);
         if ((result = timer_.CreateLocal()) != KErrNone) return result;
         Layout();
+        Publish();
         ws_.EventReady(&events_);
-        ws_.RedrawReady(&redraws_);
         timer_.After(tick_, 100000);
         requests_ = true;
         ws_.Flush();
@@ -342,14 +272,6 @@ public:
                 ws_.GetEvent(event);
                 if (event.Type() == EEventPointer) Pointer(event);
                 ws_.EventReady(&events_);
-            }
-            if (redraws_ != KRequestPending) {
-                if (redraws_.Int() != KErrNone) return redraws_.Int();
-                TWsRedrawEvent redraw;
-                ws_.GetRedraw(redraw);
-                const int index = redraw.Handle() - 2;
-                if (index >= 0 && index < kWindowCount) Draw(index, redraw.Rect());
-                ws_.RedrawReady(&redraws_);
             }
             if (tick_ != KRequestPending) {
                 if (tick_.Int() != KErrNone) return tick_.Int();
@@ -365,19 +287,21 @@ public:
             game_.LogonCancel(game_exit_);
             User::WaitForRequest(game_exit_);
         }
-        game_.Close();
         if (requests_) {
             timer_.Cancel();
             ws_.EventReadyCancel();
-            ws_.RedrawReadyCancel();
             if (tick_ == KRequestPending) User::WaitForRequest(tick_);
             if (events_ == KRequestPending) User::WaitForRequest(events_);
-            if (redraws_ == KRequestPending) User::WaitForRequest(redraws_);
         }
         timer_.Close();
-        for (auto& window : windows_) if (window) window->Close();
+        if (state_defined_) {
+            state_.Close();
+            const TUid category = {static_cast<TInt32>(Ngage::kTouchServiceSid)};
+            RProperty::Delete(category, static_cast<TUint>(game_.Id().Id()));
+        }
+        game_.Close();
+        if (capture_) capture_->Close();
         group_.Close();
-        if (font_) screen_->ReleaseFont(font_);
     }
 };
 }

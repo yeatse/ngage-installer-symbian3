@@ -5,6 +5,8 @@
 #include <bitstd.h>
 #include <fbs.h>
 #include <w32std.h>
+#include <e32property.h>
+#include "../common/touch_controls.h"
 #include "../common/touch_service.h"
 
 
@@ -103,6 +105,11 @@ class Surface final : public CPostingSurface {
     Buffer buffer_;
     RRegion clip_;
     bool clip_set_ = false;
+    // The touch controls are drawn into each frame; a window over the game would stop it drawing there.
+    CFbsBitmapDevice* overlay_ = nullptr;
+    CFbsBitGc* overlay_gc_ = nullptr;
+    CFont* font_ = nullptr;
+    RProperty touch_;
     TSize source_{0, 0};
     Pixel pixel_ = Pixel::kInvalid;
     TPostingParams destination_;
@@ -114,6 +121,7 @@ public:
         Destroy();
         ReleaseDirect();
         clip_.Close();
+        touch_.Close();
         delete screen_;
         if (fbs_connected_) RFbsSession::Disconnect();
         if (connected_) ws_.Close();
@@ -159,6 +167,65 @@ public:
         const TInt count = bitmap_.DataStride() / 4 * bitmap_.SizeInPixels().iHeight;
         for (TInt i = 0; i < count; ++i) pixels[i] = 0xff000000u;
         bitmap_.EndDataAccess();
+        overlay_ = CFbsBitmapDevice::NewL(&bitmap_);
+        User::LeaveIfError(overlay_->CreateContext(overlay_gc_));
+        const Ngage::TouchLayout layout(bitmap_.SizeInPixels());
+        User::LeaveIfError(overlay_->GetNearestFontInPixels(font_, TFontSpec(_L("Nokia Sans S60"), layout.unit / 2)));
+    }
+    void Fill(const TRect& area, TRgb colour) {
+        if (area.IsEmpty()) return;
+        overlay_gc_->SetBrushColor(colour);
+        overlay_gc_->DrawRect(area);
+    }
+    // The picture is rewritten every frame; the border around it is not, so it is restored here.
+    void Restore(const TRect& area, const TRect& picture) {
+        const TRgb black(0, 0, 0);
+        TRect inside = area;
+        inside.Intersection(picture);
+        if (inside.IsEmpty()) { Fill(area, black); return; }
+        Fill(TRect(area.iTl.iX, area.iTl.iY, area.iBr.iX, inside.iTl.iY), black);
+        Fill(TRect(area.iTl.iX, inside.iBr.iY, area.iBr.iX, area.iBr.iY), black);
+        Fill(TRect(area.iTl.iX, inside.iTl.iY, inside.iTl.iX, inside.iBr.iY), black);
+        Fill(TRect(inside.iBr.iX, inside.iTl.iY, area.iBr.iX, inside.iBr.iY), black);
+    }
+    void Control(const TRect& bounds, bool pressed) {
+        TRect area = bounds;
+        area.Shrink(1, 1);
+        overlay_gc_->SetPenStyle(CGraphicsContext::ENullPen);
+        Fill(area, pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
+        overlay_gc_->SetPenStyle(CGraphicsContext::ESolidPen);
+    }
+    void DrawControls(const TRect& picture) {
+        if (!overlay_gc_ || !font_) return;
+        if (!touch_.Handle()) {
+            const TUid category = {static_cast<TInt32>(Ngage::kTouchServiceSid)};
+            if (touch_.Attach(category, static_cast<TUint>(RProcess().Id().Id())) != KErrNone) return;
+        }
+        TInt state = 0;
+        if (touch_.Get(state) != KErrNone) state = 0;
+        const Ngage::TouchLayout layout(bitmap_.SizeInPixels());
+        overlay_gc_->SetPenStyle(CGraphicsContext::ENullPen);
+        overlay_gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
+        Restore(layout.toggle, picture);
+        for (const TRect& button : layout.buttons) Restore(button, picture);
+        if (!(state & Ngage::kTouchActive)) return;
+        const bool hidden = state & Ngage::kTouchHidden;
+        overlay_gc_->SetPenColor(TRgb(255, 255, 255, 240));
+        Control(layout.toggle, false);
+        const TPoint center = layout.toggle.Center();
+        overlay_gc_->SetPenSize(TSize(2, 2));
+        overlay_gc_->DrawLine(center - TPoint(6, 0), center + TPoint(7, 0));
+        if (hidden) overlay_gc_->DrawLine(center - TPoint(0, 6), center + TPoint(0, 7));
+        overlay_gc_->SetPenSize(TSize(1, 1));
+        if (hidden) return;
+        overlay_gc_->UseFont(font_);
+        for (TInt i = 0; i < Ngage::kTouchButtons; ++i) {
+            const TRect& area = layout.buttons[i];
+            Control(area, state & (1 << i));
+            const TInt baseline = (area.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
+            overlay_gc_->DrawText(Ngage::TouchLabel(i), area, baseline, CGraphicsContext::ECenter, 0);
+        }
+        overlay_gc_->DiscardFont();
     }
     void Destroy(TRequestStatus& status) override {
         Destroy(); TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
@@ -251,6 +318,7 @@ public:
             }
         }
         bitmap_.EndDataAccess();
+        DrawControls(area);
         RRegion update;
         update.AddRect(TRect(TPoint(0, 0), bitmap.iSize));
         if (clip_set_) update.Intersect(clip_);
@@ -267,7 +335,13 @@ public:
         if (params.iMirror || params.iRotation != ENoRotation) return KErrNotSupported;
         destination_ = params; return KErrNone;
     }
-    void Release() { buffer_.Close(); bitmap_.Reset(); }
+    void Release() {
+        if (font_) overlay_->ReleaseFont(font_);
+        font_ = nullptr;
+        delete overlay_gc_; overlay_gc_ = nullptr;
+        delete overlay_; overlay_ = nullptr;
+        buffer_.Close(); bitmap_.Reset();
+    }
     void ReleaseDirect() { delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr; }
     TInt SetClipRegion(const TRegion& region) override {
         clip_.Copy(region);

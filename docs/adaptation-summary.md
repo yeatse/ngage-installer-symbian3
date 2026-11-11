@@ -92,14 +92,24 @@ to bottom on the right, and hide/show at the upper left. Input handling tracks
 holds, repeats and multiple pointers, and releases keys when controls are hidden
 or focus changes to prevent stuck keys.
 
-The pad is a single window that reads the direction from the angle between the
-touch and the pad centre, in eight 45° sectors; a diagonal holds both of its
-arrow keys and has its own corner cell, so the window has no transparent part:
-the game draws straight to the screen and cannot update the area under any
-window. A touch can slide from one direction to another without lifting, keeps
-tracking after it leaves the pad, and keeps its direction while it crosses the
-centre. Windows receive drag events only once their drag filter is cleared. OK needs a touch that starts on the centre cell; sliding
-off it turns the touch into a direction.
+The controls are not windows. The game draws straight to the screen and cannot
+update the area under any window, so even a translucent control kept the picture
+from the moment it appeared. The touch service now owns one single-pixel window
+that captures every touch while the game has focus (window-server pointer
+capture across groups, which needs its SwEvent capability) and publishes the
+held buttons and the hidden flag in a property keyed by the game's process ID.
+The posting surface reads that property for every frame and draws the controls
+into the frame before it reaches the screen, restoring the black border under
+them where the picture does not reach. Both sides compute the layout from the
+same header. A game that stops posting frames also stops updating the controls.
+
+The pad reads the direction from the angle between the touch and the pad
+centre, in eight 45° sectors; a diagonal holds both of its arrow keys. Only the
+cross is drawn, but its corners and a margin around it take touches. A touch can
+slide from one direction to another without lifting, keeps tracking after it
+leaves the pad, and keeps its direction while it crosses the centre. Windows
+receive drag events only once their drag filter is cleared. OK needs a touch
+that starts on the centre cell; sliding off it turns the touch into a direction.
 
 A and B send Enter and Backspace, the primary and secondary action keys of
 the N97 NGI input profile that Symbian^3 selects. That profile has no keypad
