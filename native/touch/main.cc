@@ -229,8 +229,11 @@ class Controls {
         window.BeginRedraw(rectangle);
         gc_->SetPenStyle(CGraphicsContext::ENullPen);
         gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
+        // Only this mode stores the zero alpha; blending would leave the cleared area opaque.
+        gc_->SetDrawMode(CGraphicsContext::EDrawModeWriteAlpha);
         gc_->SetBrushColor(TRgb(0, 0, 0, 0));
         gc_->Clear();
+        gc_->SetDrawMode(CGraphicsContext::EDrawModePEN);
         gc_->SetPenColor(TRgb(255, 255, 255, 240));
         const TRect area(TPoint(1, 1), bounds_[index].Size() - TSize(2, 2));
         if (index == kPad) {
@@ -305,6 +308,9 @@ public:
             if ((result = windows_[i]->SetTransparencyAlphaChannel()) != KErrNone) return result;
             windows_[i]->SetBackgroundColor(TRgb(0, 0, 0, 0));
             windows_[i]->EnableAdvancedPointers();
+            // Windows do not receive drag events unless the filter is cleared.
+            windows_[i]->PointerFilter(EPointerFilterDrag, 0);
+            windows_[i]->SetPointerGrab(ETrue);
             windows_[i]->SetVisible(EFalse);
             windows_[i]->Activate();
         }
