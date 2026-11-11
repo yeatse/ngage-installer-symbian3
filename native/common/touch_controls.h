@@ -48,13 +48,13 @@ struct TouchLayout {
         buttons[kTouchR] = TRect(right, 8, right + unit, 8 + unit);
         toggle = TRect(6, 8, 38, 40);
         mode = TRect(6, screen.iHeight - 40, 38, screen.iHeight - 8);
-        const TInt left = screen.iWidth - 8 - 3 * unit, top = (screen.iHeight - 4 * unit) / 2;
+        const TInt left = screen.iWidth - 8 - 3 * unit, top = (screen.iHeight - 5 * unit) / 2;
         for (TInt i = 0; i < 12; ++i) {
             const TInt keypad_row = (i * 11) >> 5;  // i / 3 without a division routine
             buttons[kTouchKeypad + i] = TRect(TPoint(left + (i - keypad_row * 3) * unit, top + keypad_row * unit),
                                               TSize(unit, unit));
         }
-        buttons[kTouchClear] = TRect(TPoint(left - unit - 4, top + 3 * unit), TSize(unit, unit));
+        buttons[kTouchClear] = TRect(TPoint(left, top + 4 * unit), TSize(unit, unit));
     }
     // The pad takes touches in its corners and a little beyond the drawn cross.
     TRect PadArea() const {
