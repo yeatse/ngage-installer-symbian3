@@ -83,6 +83,23 @@ Pixel PixelOf(TUint format) {
 }
 TInt BytesOf(Pixel pixel) { return pixel == Pixel::k888 ? 3 : pixel == Pixel::kx888 ? 4 : 2; }
 
+// Fields of a 16-bit pixel never share a byte boundary in a way that mixes, so each byte expands alone.
+TUint32 Expand(Pixel pixel, TUint value) {
+    TUint b, g, r;
+    if (pixel == Pixel::k444) {
+        b = (value & 15) * 17; g = ((value >> 4) & 15) * 17; r = ((value >> 8) & 15) * 17;
+    } else if (pixel == Pixel::k555) {
+        b = value & 31; b = (b << 3) | (b >> 2);
+        g = (value >> 5) & 31; g = (g << 3) | (g >> 2);
+        r = (value >> 10) & 31; r = (r << 3) | (r >> 2);
+    } else {
+        b = value & 31; b = (b << 3) | (b >> 2);
+        g = (value >> 5) & 63; g = (g << 2) | (g >> 4);
+        r = (value >> 11) & 31; r = (r << 3) | (r >> 2);
+    }
+    return (r << 16) | (g << 8) | b;
+}
+
 class Buffer final : public CPostingSurface::TPostingBufferChunk {
 public:
     void CreateL(TSize size, TInt bytes) {
@@ -105,7 +122,7 @@ class Surface final : public CPostingSurface {
     Buffer buffer_;
     RRegion clip_;
     bool clip_set_ = false;
-    // The touch controls are drawn into each frame; a window over the game would stop it drawing there.
+    // The touch controls are blended into each frame from cache_; a window over the game would stop it drawing there.
     CFbsBitmapDevice* overlay_ = nullptr;
     CFbsBitGc* overlay_gc_ = nullptr;
     CFont* font_ = nullptr;
@@ -115,7 +132,18 @@ class Surface final : public CPostingSurface {
     TPostingParams destination_;
     bool connected_ = false;
     bool fbs_connected_ = false;
+    // Source byte offset for each output column and source row for each output row.
     TInt x_map_[640];
+    TInt y_map_[640];
+    bool mapped_ = false;
+    // A 16-bit source pixel is the OR of one entry for each of its bytes.
+    TUint32 high_[256];
+    TUint32 low_[256];
+    CFbsBitmap cache_;
+    TInt cache_state_ = -1;
+    TUint shown_ = 0;
+    TUint8 scratch_[48 * 48];
+    TInt focus_ = 0;
 public:
     ~Surface() override {
         Destroy();
@@ -167,72 +195,138 @@ public:
         const TInt count = bitmap_.DataStride() / 4 * bitmap_.SizeInPixels().iHeight;
         for (TInt i = 0; i < count; ++i) pixels[i] = 0xff000000u;
         bitmap_.EndDataAccess();
-        overlay_ = CFbsBitmapDevice::NewL(&bitmap_);
+        for (TUint i = 0; i < 256; ++i) {
+            low_[i] = 0xff000000u | Expand(pixel_, i);
+            high_[i] = Expand(pixel_, i << 8);
+        }
+        User::LeaveIfError(cache_.Create(bitmap_.SizeInPixels(), EColor16MU));
+        overlay_ = CFbsBitmapDevice::NewL(&cache_);
         User::LeaveIfError(overlay_->CreateContext(overlay_gc_));
         const Ngage::TouchLayout layout(bitmap_.SizeInPixels());
         User::LeaveIfError(overlay_->GetNearestFontInPixels(font_, TFontSpec(_L("Nokia Sans S60"), layout.unit / 2)));
     }
-    void Fill(const TRect& area, TRgb colour) {
-        if (area.IsEmpty()) return;
-        overlay_gc_->SetBrushColor(colour);
-        overlay_gc_->DrawRect(area);
+    enum { kToggle = Ngage::kTouchButtons, kMode, kItems };
+    static TRect ItemRect(const Ngage::TouchLayout& layout, TInt item) {
+        return item == kToggle ? layout.toggle : item == kMode ? layout.mode : layout.buttons[item];
     }
-    // The picture is rewritten every frame; the border around it is not, so it is restored here.
-    void Restore(const TRect& area, const TRect& picture) {
-        const TRgb black(0, 0, 0);
-        TRect inside = area;
-        inside.Intersection(picture);
-        if (inside.IsEmpty()) { Fill(area, black); return; }
-        Fill(TRect(area.iTl.iX, area.iTl.iY, area.iBr.iX, inside.iTl.iY), black);
-        Fill(TRect(area.iTl.iX, inside.iBr.iY, area.iBr.iX, area.iBr.iY), black);
-        Fill(TRect(area.iTl.iX, inside.iTl.iY, inside.iTl.iX, inside.iBr.iY), black);
-        Fill(TRect(inside.iBr.iX, inside.iTl.iY, area.iBr.iX, inside.iBr.iY), black);
+    static bool ItemShown(TInt item, TInt state) {
+        if (!(state & Ngage::kTouchActive)) return false;
+        if (item == kToggle) return true;
+        if (state & Ngage::kTouchHidden) return false;
+        return item == kMode || Ngage::TouchButtonShown(item, state);
     }
-    void Control(const TRect& bounds, bool pressed) {
+    void DrawItem(const TRect& bounds, TInt item, TInt state) {
         TRect area = bounds;
         area.Shrink(1, 1);
+        const bool pressed = item < Ngage::kTouchButtons && (state & (1 << item));
         overlay_gc_->SetPenStyle(CGraphicsContext::ENullPen);
-        Fill(area, pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
+        overlay_gc_->SetBrushColor(pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
+        overlay_gc_->DrawRect(area);
         overlay_gc_->SetPenStyle(CGraphicsContext::ESolidPen);
-    }
-    void Label(const TRect& area, const TDesC& text) {
-        const TInt baseline = (area.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
-        overlay_gc_->DrawText(text, area, baseline, CGraphicsContext::ECenter, 0);
-    }
-    void DrawControls(const TRect& picture) {
-        if (!overlay_gc_ || !font_) return;
-        if (!touch_.Handle()) {
-            const TUid category = {static_cast<TInt32>(Ngage::kTouchServiceSid)};
-            if (touch_.Attach(category, static_cast<TUint>(RProcess().Id().Id())) != KErrNone) return;
-        }
-        TInt state = 0;
-        if (touch_.Get(state) != KErrNone) state = 0;
-        const Ngage::TouchLayout layout(bitmap_.SizeInPixels());
-        overlay_gc_->SetPenStyle(CGraphicsContext::ENullPen);
-        overlay_gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
-        Restore(layout.toggle, picture);
-        Restore(layout.mode, picture);
-        for (const TRect& button : layout.buttons) Restore(button, picture);
-        if (!(state & Ngage::kTouchActive)) return;
-        const bool hidden = state & Ngage::kTouchHidden;
         overlay_gc_->SetPenColor(TRgb(255, 255, 255, 240));
-        Control(layout.toggle, false);
-        const TPoint center = layout.toggle.Center();
-        overlay_gc_->SetPenSize(TSize(2, 2));
-        overlay_gc_->DrawLine(center - TPoint(6, 0), center + TPoint(7, 0));
-        if (hidden) overlay_gc_->DrawLine(center - TPoint(0, 6), center + TPoint(0, 7));
-        overlay_gc_->SetPenSize(TSize(1, 1));
-        if (hidden) return;
-        overlay_gc_->UseFont(font_);
-        for (TInt i = 0; i < Ngage::kTouchButtons; ++i) {
-            if (!Ngage::TouchButtonShown(i, state)) continue;
-            Control(layout.buttons[i], state & (1 << i));
-            Label(layout.buttons[i], Ngage::TouchLabel(i));
+        if (item == kToggle) {
+            const TPoint center = bounds.Center();
+            overlay_gc_->SetPenSize(TSize(2, 2));
+            overlay_gc_->DrawLine(center - TPoint(6, 0), center + TPoint(7, 0));
+            if (state & Ngage::kTouchHidden) overlay_gc_->DrawLine(center - TPoint(0, 6), center + TPoint(0, 7));
+            overlay_gc_->SetPenSize(TSize(1, 1));
+            return;
         }
         // The switch names the keys it brings up.
-        Control(layout.mode, false);
-        if (state & Ngage::kTouchKeypadShown) Label(layout.mode, _L("A")); else Label(layout.mode, _L("1"));
+        const TPtrC text = item != kMode ? Ngage::TouchLabel(item) :
+            (state & Ngage::kTouchKeypadShown) ? TPtrC(_L("A")) : TPtrC(_L("1"));
+        const TInt baseline = (bounds.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
+        overlay_gc_->DrawText(text, bounds, baseline, CGraphicsContext::ECenter, 0);
+    }
+    // Controls are drawn only when the state changes, once over white and once over black: the
+    // difference gives each pixel's alpha and the black pass its premultiplied colour.
+    void Render(TInt state) {
+        shown_ = 0;
+        if (!overlay_gc_ || !font_) return;
+        const Ngage::TouchLayout layout(cache_.SizeInPixels());
+        const TRect bounds(TPoint(0, 0), cache_.SizeInPixels());
+        const TInt pitch = cache_.DataStride();
+        overlay_gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
+        overlay_gc_->UseFont(font_);
+        for (TInt item = 0; item < kItems; ++item) {
+            const TRect area = ItemRect(layout, item);
+            TRect inside = area;
+            inside.Intersection(bounds);
+            const TInt width = area.Width(), height = area.Height();
+            if (!ItemShown(item, state) || inside != area || width * height > static_cast<TInt>(sizeof scratch_))
+                continue;
+            for (TInt pass = 0; pass < 2; ++pass) {
+                overlay_gc_->SetPenStyle(CGraphicsContext::ENullPen);
+                overlay_gc_->SetBrushColor(pass ? TRgb(0, 0, 0) : TRgb(255, 255, 255));
+                overlay_gc_->DrawRect(area);
+                DrawItem(area, item, state);
+                cache_.BeginDataAccess();
+                auto* first = reinterpret_cast<TUint8*>(cache_.DataAddress()) + area.iTl.iY * pitch;
+                TUint8* white = scratch_;
+                for (TInt y = 0; y < height; ++y) {
+                    auto* row = reinterpret_cast<TUint32*>(first + y * pitch) + area.iTl.iX;
+                    for (TInt x = 0; x < width; ++x, ++white) {
+                        const TUint colour = row[x];
+                        if (!pass) { *white = colour >> 8; continue; }
+                        TInt alpha = 255 - (*white - static_cast<TInt>((colour >> 8) & 255));
+                        if (alpha < 0) alpha = 0;
+                        if (alpha > 255) alpha = 255;
+                        TUint r = (colour >> 16) & 255, g = (colour >> 8) & 255, b = colour & 255;
+                        const TUint limit = alpha;
+                        if (r > limit) r = limit;
+                        if (g > limit) g = limit;
+                        if (b > limit) b = limit;
+                        row[x] = (limit << 24) | (r << 16) | (g << 8) | b;
+                    }
+                }
+                cache_.EndDataAccess(pass == 0);
+            }
+            shown_ |= 1u << item;
+        }
         overlay_gc_->DiscardFont();
+    }
+    // The picture is rewritten every frame; the border around it is not, so a control there is
+    // written over black, and blacked out once when it goes away.
+    void Blend(TUint8* frame, TInt frame_pitch, const TRect& picture) {
+        TInt state = 0;
+        if (!touch_.Handle()) {
+            const TUid category = {static_cast<TInt32>(Ngage::kTouchServiceSid)};
+            touch_.Attach(category, static_cast<TUint>(RProcess().Id().Id()));
+        }
+        if (!touch_.Handle() || touch_.Get(state) != KErrNone) state = 0;
+        const bool changed = state != cache_state_;
+        if (changed) { Render(state); cache_state_ = state; }
+        if (!shown_ && !changed) return;
+        const Ngage::TouchLayout layout(cache_.SizeInPixels());
+        const TRect bounds(TPoint(0, 0), cache_.SizeInPixels());
+        const auto* cache = reinterpret_cast<const TUint8*>(cache_.DataAddress());
+        const TInt pitch = cache_.DataStride();
+        for (TInt item = 0; item < kItems; ++item) {
+            const bool shown = shown_ & (1u << item);
+            if (!shown && !changed) continue;
+            const TRect area = ItemRect(layout, item);
+            TRect clipped = area;
+            clipped.Intersection(bounds);
+            if (clipped != area || area.IsEmpty()) continue;
+            TRect inside(area.iBr, area.iBr);
+            if (area.Intersects(picture)) { inside = area; inside.Intersection(picture); }
+            for (TInt y = area.iTl.iY; y < area.iBr.iY; ++y) {
+                auto* row = reinterpret_cast<TUint32*>(frame + y * frame_pitch);
+                const auto* source = reinterpret_cast<const TUint32*>(cache + y * pitch);
+                const bool crosses = y >= inside.iTl.iY && y < inside.iBr.iY;
+                const TInt left = crosses ? inside.iTl.iX : area.iBr.iX, right = crosses ? inside.iBr.iX : area.iBr.iX;
+                for (TInt x = area.iTl.iX; x < left; ++x) row[x] = shown ? source[x] | 0xff000000u : 0xff000000u;
+                for (TInt x = right; x < area.iBr.iX; ++x) row[x] = shown ? source[x] | 0xff000000u : 0xff000000u;
+                if (!shown) continue;
+                for (TInt x = left; x < right; ++x) {
+                    const TUint over = source[x], alpha = over >> 24;
+                    if (!alpha) continue;
+                    const TUint under = row[x], keep = 255 - alpha;
+                    row[x] = 0xff000000u | ((over & 0xffffffu) + ((((under & 0xff00ffu) * keep) >> 8) & 0xff00ffu) +
+                                            ((((under & 0xff00u) * keep) >> 8) & 0xff00u));
+                }
+            }
+        }
     }
     void Destroy(TRequestStatus& status) override {
         Destroy(); TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
@@ -248,26 +342,27 @@ public:
     }
     TInt CancelBuffer() override { return KErrNone; }
     TInt PostBuffer(TPostingBuff* buffer) override {
-        TThreadId focused;
-        if (ws_.GetWindowGroupClientThreadId(ws_.GetFocusWindowGroup(), focused) != KErrNone)
-            return KErrNone;
-        RThread thread;
-        if (thread.Open(focused) != KErrNone) return KErrNone;
-        const TBool foreground = thread.SecureId() == RProcess().SecureId();
-        thread.Close();
-        if (!foreground) return KErrNone;
+        // The focused group is checked against the game only when it changes.
+        const TInt group = ws_.GetFocusWindowGroup();
+        if (group != focus_) {
+            TThreadId focused;
+            if (ws_.GetWindowGroupClientThreadId(group, focused) != KErrNone) return KErrNone;
+            RThread thread;
+            if (thread.Open(focused) != KErrNone) return KErrNone;
+            const TBool foreground = thread.SecureId() == RProcess().SecureId();
+            thread.Close();
+            if (!foreground) return KErrNone;
+            focus_ = group;
+        }
         if (!buffer || buffer->GetSize() != source_ || !buffer->GetBuffer()) return KErrArgument;
         if (!direct_ || !gc_) return KErrNotReady;
 
-        TAcceleratedBitmapInfo bitmap;
-        bitmap.iAddress = reinterpret_cast<TUint8*>(bitmap_.DataAddress());
-        bitmap.iSize = bitmap_.SizeInPixels();
-        bitmap.iLinePitch = bitmap_.DataStride();
-        bitmap.iDisplayMode = bitmap_.DisplayMode();
-        if (!bitmap.iAddress || bitmap.iSize.iWidth <= 0 || bitmap.iSize.iHeight <= 0) return KErrNotReady;
-        const TInt out_bytes = bitmap.iDisplayMode == EColor64K ? 2 : bitmap.iDisplayMode == EColor16M ? 3 :
-            (bitmap.iDisplayMode == EColor16MU || bitmap.iDisplayMode == EColor16MA || bitmap.iDisplayMode == EColor16MAP) ? 4 : 0;
-        if (!out_bytes) return KErrNotSupported;
+        auto* frame = reinterpret_cast<TUint8*>(bitmap_.DataAddress());
+        const TSize size = bitmap_.SizeInPixels();
+        const TInt pitch = bitmap_.DataStride();
+        if (!frame || size.iWidth <= 0 || size.iHeight <= 0) return KErrNotReady;
+        if (size.iWidth > 640 || size.iHeight > 640 || (reinterpret_cast<TUint>(frame) & 3) || (pitch & 3))
+            return KErrNotSupported;
         TRect output = destination_.iDisplayedRect;
         if (output.IsEmpty()) return KErrNone;
         if (!destination_.iScaleToRect.IsEmpty()) {
@@ -276,58 +371,51 @@ public:
         TRect crop = destination_.iInputCrop;
         if (crop.IsEmpty()) crop = TRect(TPoint(0, 0), source_);
         crop.Intersection(TRect(TPoint(0, 0), source_));
-        if (crop.IsEmpty() || bitmap.iSize.iWidth > 640) return KErrArgument;
-        TRect visible = output; visible.Intersection(TRect(TPoint(0, 0), bitmap.iSize));
+        if (crop.IsEmpty()) return KErrArgument;
+        TRect area = output; area.Intersection(TRect(TPoint(0, 0), size));
         const auto* input = static_cast<const TUint8*>(buffer->GetBuffer());
         const TInt in_bytes = BytesOf(pixel_);
         const TInt in_stride = buffer->GetStride();
         if (in_stride < source_.iWidth * in_bytes) return KErrArgument;
-        const bool fast32 = in_bytes == 4 && out_bytes == 4 &&
-            !(reinterpret_cast<TUint>(input) & 3) && !(in_stride & 3) &&
-            !(reinterpret_cast<TUint>(bitmap.iAddress) & 3) && !(bitmap.iLinePitch & 3);
-        for (TInt x = visible.iTl.iX; x < visible.iBr.iX; ++x)
-            x_map_[x] = crop.iTl.iX + Divide((x - output.iTl.iX) * crop.Width(), output.Width());
-        const TRect area = visible;
+        if (!mapped_) {
+            for (TInt x = area.iTl.iX; x < area.iBr.iX; ++x)
+                x_map_[x] = (crop.iTl.iX + Divide((x - output.iTl.iX) * crop.Width(), output.Width())) * in_bytes;
+            for (TInt y = area.iTl.iY; y < area.iBr.iY; ++y)
+                y_map_[y] = crop.iTl.iY + Divide((y - output.iTl.iY) * crop.Height(), output.Height());
+            mapped_ = true;
+        }
+        const bool words = in_bytes == 4 && !(reinterpret_cast<TUint>(input) & 3) && !(in_stride & 3);
+        const TInt left = area.iTl.iX, right = area.iBr.iX;
         bitmap_.BeginDataAccess();
+        const TUint32* previous = nullptr;
         for (TInt y = area.iTl.iY; y < area.iBr.iY; ++y) {
-            const TInt sy = crop.iTl.iY + Divide((y - output.iTl.iY) * crop.Height(), output.Height());
-            auto* row = bitmap.iAddress + y * bitmap.iLinePitch;
-            for (TInt x = area.iTl.iX; x < area.iBr.iX; ++x) {
-                const TInt sx = x_map_[x];
-                const auto* pixel = input + sy * in_stride + sx * in_bytes;
-                if (fast32) {
-                    reinterpret_cast<TUint32*>(row)[x] = *reinterpret_cast<const TUint32*>(pixel) | 0xff000000u;
-                    continue;
+            auto* row = reinterpret_cast<TUint32*>(frame + y * pitch);
+            // An enlarged picture repeats source rows; the converted row is copied.
+            if (previous && y_map_[y] == y_map_[y - 1]) {
+                Mem::Copy(row + left, previous + left, (right - left) * 4);
+                continue;
+            }
+            previous = row;
+            const TUint8* line = input + y_map_[y] * in_stride;
+            if (words) {
+                for (TInt x = left; x < right; ++x)
+                    row[x] = *reinterpret_cast<const TUint32*>(line + x_map_[x]) | 0xff000000u;
+            } else if (in_bytes == 2) {
+                for (TInt x = left; x < right; ++x) {
+                    const TUint8* pixel = line + x_map_[x];
+                    row[x] = high_[pixel[1]] | low_[pixel[0]];
                 }
-                TUint b, g, r;
-                if (pixel_ == Pixel::k444) {
-                    const TUint value = pixel[0] | (pixel[1] << 8);
-                    b = (value & 15) * 17; g = ((value >> 4) & 15) * 17; r = ((value >> 8) & 15) * 17;
-                } else if (pixel_ == Pixel::k555) {
-                    const TUint value = pixel[0] | (pixel[1] << 8);
-                    b = value & 31; b = (b << 3) | (b >> 2);
-                    g = (value >> 5) & 31; g = (g << 3) | (g >> 2);
-                    r = (value >> 10) & 31; r = (r << 3) | (r >> 2);
-                } else if (in_bytes == 2) {
-                    const TUint value = pixel[0] | (pixel[1] << 8);
-                    b = value & 31; b = (b << 3) | (b >> 2);
-                    g = (value >> 5) & 63; g = (g << 2) | (g >> 4);
-                    r = (value >> 11) & 31; r = (r << 3) | (r >> 2);
-                } else { b = pixel[0]; g = pixel[1]; r = pixel[2]; }
-                auto* destination = row + x * out_bytes;
-                if (out_bytes == 2) {
-                    const TUint value = ((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3);
-                    destination[0] = value; destination[1] = value >> 8;
-                } else {
-                    destination[0] = b; destination[1] = g; destination[2] = r;
-                    if (out_bytes == 4) destination[3] = 255;
+            } else {
+                for (TInt x = left; x < right; ++x) {
+                    const TUint8* pixel = line + x_map_[x];
+                    row[x] = 0xff000000u | (pixel[2] << 16) | (pixel[1] << 8) | pixel[0];
                 }
             }
         }
+        Blend(frame, pitch, area);
         bitmap_.EndDataAccess();
-        DrawControls(area);
         RRegion update;
-        update.AddRect(TRect(TPoint(0, 0), bitmap.iSize));
+        update.AddRect(TRect(TPoint(0, 0), size));
         if (clip_set_) update.Intersect(clip_);
         if (!update.CheckError() && !update.IsEmpty()) {
             gc_->SetClippingRegion(update);
@@ -340,14 +428,15 @@ public:
     }
     TInt SetPostingParameters(const TPostingParams& params) override {
         if (params.iMirror || params.iRotation != ENoRotation) return KErrNotSupported;
-        destination_ = params; return KErrNone;
+        destination_ = params; mapped_ = false; return KErrNone;
     }
     void Release() {
         if (font_) overlay_->ReleaseFont(font_);
         font_ = nullptr;
         delete overlay_gc_; overlay_gc_ = nullptr;
         delete overlay_; overlay_ = nullptr;
-        buffer_.Close(); bitmap_.Reset();
+        buffer_.Close(); bitmap_.Reset(); cache_.Reset();
+        cache_state_ = -1; shown_ = 0; mapped_ = false;
     }
     void ReleaseDirect() { delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr; }
     TInt SetClipRegion(const TRegion& region) override {

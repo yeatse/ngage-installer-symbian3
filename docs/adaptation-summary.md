@@ -98,9 +98,10 @@ from the moment it appeared. The touch service now owns one single-pixel window
 that captures every touch while the game has focus (window-server pointer
 capture across groups, which needs its SwEvent capability) and publishes the
 held buttons and the hidden flag in a property keyed by the game's process ID.
-The posting surface reads that property for every frame and draws the controls
-into the frame before it reaches the screen, restoring the black border under
-them where the picture does not reach. Both sides compute the layout from the
+The posting surface reads that property for every frame and blends the controls
+into the frame before it reaches the screen. It renders them only when the
+property changes, into a cache with per-pixel alpha, and writes them over black
+where the picture does not reach. Both sides compute the layout from the
 same header. A game that stops posting frames also stops updating the controls.
 
 The pad reads the direction from the angle between the touch and the pad
