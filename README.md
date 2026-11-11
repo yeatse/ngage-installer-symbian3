@@ -26,8 +26,8 @@ the phone.
 ## Controls
 
 - A five-way pad is on the left; R, A, B and L are on the right.
-- The pad has eight directions: touch between two arrows for a diagonal, and slide
-  your thumb to change direction without lifting it.
+- The pad has eight directions: touch a corner for a diagonal, and slide your thumb
+  to change direction without lifting it.
 - The button at the upper left hides or shows the controls.
 - The phone's volume keys change the game volume.
 

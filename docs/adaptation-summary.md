@@ -94,9 +94,11 @@ or focus changes to prevent stuck keys.
 
 The pad is a single window that reads the direction from the angle between the
 touch and the pad centre, in eight 45° sectors; a diagonal holds both of its
-arrow keys. A touch can slide from one direction to another without lifting,
-keeps tracking after it leaves the drawn cross, and keeps its direction while
-it crosses the centre. OK needs a touch that starts on the centre cell; sliding
+arrow keys and has its own corner cell, so the window has no transparent part:
+the game draws straight to the screen and cannot update the area under any
+window. A touch can slide from one direction to another without lifting, keeps
+tracking after it leaves the pad, and keeps its direction while it crosses the
+centre. Windows receive drag events only once their drag filter is cleared. OK needs a touch that starts on the centre cell; sliding
 off it turns the touch into a direction.
 
 A and B send Enter and Backspace, the primary and secondary action keys of

@@ -129,9 +129,8 @@ class Controls {
         const int x = 6;
         unit_ = unit;
         pad_center_ = TPoint(x + unit * 3 / 2, y + unit * 3 / 2);
-        // The pad accepts touches a little beyond its drawn cross.
-        const int slop = unit / 3;
-        bounds_[kPad] = TRect(0, y - slop, x + 3 * unit + slop, y + 3 * unit + slop);
+        // The game cannot draw under any window, so the pad has no transparent margin.
+        bounds_[kPad] = TRect(x, y, x + 3 * unit, y + 3 * unit);
         const int right = size.iWidth - unit - 8;
         bounds_[1] = TRect(right, y + unit / 2, right + unit, y + unit * 3 / 2);
         bounds_[2] = TRect(right, y + unit * 3 / 2 + 8, right + unit, y + unit * 5 / 2 + 8);
@@ -212,11 +211,15 @@ class Controls {
         }
     }
 
-    void Cell(int button, const TRect& area) {
+    void Fill(bool pressed, const TRect& area) {
         gc_->SetPenStyle(CGraphicsContext::ENullPen);
-        gc_->SetBrushColor(held_[button] ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
+        gc_->SetBrushColor(pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
         gc_->DrawRect(area);
         gc_->SetPenStyle(CGraphicsContext::ESolidPen);
+    }
+
+    void Cell(int button, const TRect& area) {
+        Fill(held_[button], area);
         gc_->UseFont(font_);
         const TInt baseline = (area.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
         gc_->DrawText(Text(kBindings[button].label), area, baseline, CGraphicsContext::ECenter, 0);
@@ -238,10 +241,19 @@ class Controls {
         const TRect area(TPoint(1, 1), bounds_[index].Size() - TSize(2, 2));
         if (index == kPad) {
             static constexpr int kColumn[kPadButtons] = {1, 0, 1, 2, 1}, kRow[kPadButtons] = {0, 1, 1, 1, 2};
-            const TPoint origin = pad_center_ - bounds_[kPad].iTl - TPoint(unit_ * 3 / 2, unit_ * 3 / 2);
-            for (int i = 0; i < kPadButtons; ++i) {
-                const TPoint corner = origin + TPoint(kColumn[i] * unit_ + 1, kRow[i] * unit_ + 1);
-                Cell(i, TRect(corner, TSize(unit_ - 2, unit_ - 2)));
+            const TSize cell(unit_ - 2, unit_ - 2);
+            for (int i = 0; i < kPadButtons; ++i)
+                Cell(i, TRect(TPoint(kColumn[i] * unit_ + 1, kRow[i] * unit_ + 1), cell));
+            // A corner is its two arrows held together, marked with a tick pointing outwards.
+            for (int i = 0; i < 4; ++i) {
+                const int column = i & 1, row = i >> 1;
+                const TRect area(TPoint(column * 2 * unit_ + 1, row * 2 * unit_ + 1), cell);
+                Fill(held_[row ? kDown : kUp] && held_[column ? kRight : kLeft], area);
+                const TPoint middle = area.Center();
+                const int tick = unit_ / 6, sx = column ? tick : -tick, sy = row ? tick : -tick;
+                gc_->DrawLine(middle - TPoint(sx, sy), middle + TPoint(sx, sy));
+                gc_->DrawLine(middle + TPoint(sx, sy), middle + TPoint(sx, -sy / 3));
+                gc_->DrawLine(middle + TPoint(sx, sy), middle + TPoint(-sx / 3, sy));
             }
         } else if (index == kToggle) {
             gc_->SetBrushColor(TRgb(24, 32, 40, 140));
