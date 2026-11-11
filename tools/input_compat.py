@@ -13,8 +13,8 @@ LOOKUP = 0x922f
 VTABLE_SLOT = 0xaf64
 INTERNAL_LOOKUP = 0x8d1b
 INTERNAL_CALL = 0x8f1c
-INTERNAL_STUB_OFFSET = 44
-STUB_SIZE = 92
+INTERNAL_STUB_OFFSET = 54
+STUB_SIZE = 116
 
 
 def compile_softkeys(sdk, root):
@@ -98,7 +98,8 @@ def verify_stub(stub):
     from unicorn import Uc, UC_ARCH_ARM, UC_MODE_THUMB
     from unicorn.arm_const import UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R4, UC_ARM_REG_R11, UC_ARM_REG_SP, UC_ARM_REG_LR, UC_ARM_REG_PC
     for internal in (False, True):
-        for key, expected in ((0xa4, 0x1000), (0xa5, 0x2000), (0xf842, 0x1000), (0xf843, 0x2000), (0x10, 0x5a), (0x35, 0x5a)):
+        for key, expected in ((0xa4, 0x1000), (0xa5, 0x2000), (0xf842, 0x1000), (0xf843, 0x2000), (0x60, 0x4000),
+                              (0x10, 0x5a), (0x35, 0x5a), (0x61, 0x5a)):
             cpu = Uc(UC_ARCH_ARM, UC_MODE_THUMB)
             cpu.mem_map(0x1000, 0x1000); cpu.mem_map(0x8000, 0x8000); cpu.mem_map(0x20000, 0x1000)
             cpu.mem_write(CODE_BASE + CODE_SIZE, stub)

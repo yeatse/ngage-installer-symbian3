@@ -14,7 +14,7 @@ struct Binding {
     TInt scan;
     TInt code;
 };
-constexpr std::array<Binding, 21> kBindings{{
+constexpr std::array<Binding, 22> kBindings{{
     {EStdKeyUpArrow, EKeyUpArrow},
     {EStdKeyLeftArrow, EKeyLeftArrow},
     {EStdKeyDevice3, EKeyDevice3},
@@ -24,9 +24,11 @@ constexpr std::array<Binding, 21> kBindings{{
     {EStdKeyEnter, EKeyEnter}, {EStdKeyBackspace, EKeyBackspace},
     {EStdKeyDevice0, EKeyDevice0},
     {EStdKeyDevice1, EKeyDevice1},
-    // Phone keypad keys reach the game as they do from a hardware keypad.
-    {'1', '1'}, {'2', '2'}, {'3', '3'}, {'4', '4'}, {'5', '5'}, {'6', '6'},
-    {'7', '7'}, {'8', '8'}, {'9', '9'}, {'*', '*'}, {'0', '0'}, {EStdKeyHash, '#'}
+    // The N97 profile takes keypad keys from its QWERTY keyboard: Q to P are 1 to 0, J is * and H is #.
+    {'Q', 'q'}, {'W', 'w'}, {'E', 'e'}, {'R', 'r'}, {'T', 't'}, {'Y', 'y'},
+    {'U', 'u'}, {'I', 'i'}, {'O', 'o'}, {'J', 'j'}, {'P', 'p'}, {'H', 'h'},
+    // The profile has no clear key; the input library's lookup takes F1 for it.
+    {EStdKeyF1, EKeyF1}
 }};
 
 static_assert(EStdKeyDevice0 == 0xa4 && EStdKeyDevice1 == 0xa5);

@@ -115,15 +115,19 @@ A and B send Enter and Backspace, the primary and secondary action keys of
 the N97 NGI input profile that Symbian^3 selects. That profile has no keypad
 digits, so phone-keypad keys such as 5 and 7 reach the game unmapped.
 
-A switch at the lower left replaces A and B with a phone keypad (1-9, *, 0, #)
-and back; the pad, L and R stay in both layouts. The keypad keys are sent with
-the scan codes and characters of a hardware keypad.
+A switch at the lower left replaces A and B with a phone keypad (1-9, *, 0, #
+and a clear key) and back; the pad, L and R stay in both layouts. The N97
+profile takes the keypad from its QWERTY keyboard, so the keypad sends Q to P
+for 1 to 0, J for * and H for #. The profile has no clear key, which multi-tap
+text entry such as naming a Sim in The Sims 2 Pets needs for deleting; the
+keypad's C sends F1, and the input adapter below maps it to the logical clear
+key 0x4000 of keypad phones.
 
 L/R cannot be implemented simply by sending Enter/Backspace. Following NGI's
 original pointer path, a source-built Thumb adapter augments the pinned
 `ngiinput.dll`'s standard 32-bit and internal 64-bit lookups. It maps
-Device0/Device1 to the actual logical softkey bits 0x1000/0x2000, retaining the
-original lookup for other keys. Builds validate the upstream SHA, instruction
+Device0/Device1 to the actual logical softkey bits 0x1000/0x2000 and F1 to the
+clear key, retaining the original lookup for other keys. Builds validate the upstream SHA, instruction
 locations, relocation and both package copies, then execute the adapter on an
 ARM CPU to verify its ABI behavior.
 

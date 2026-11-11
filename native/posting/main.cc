@@ -231,7 +231,7 @@ public:
         }
         // The switch names the keys it brings up.
         Control(layout.mode, false);
-        if (state & Ngage::kTouchKeypadShown) Label(layout.mode, _L("AB")); else Label(layout.mode, _L("123"));
+        if (state & Ngage::kTouchKeypadShown) Label(layout.mode, _L("A")); else Label(layout.mode, _L("1"));
         overlay_gc_->DiscardFont();
     }
     void Destroy(TRequestStatus& status) override {
