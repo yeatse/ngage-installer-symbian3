@@ -195,6 +195,10 @@ public:
         Fill(area, pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
         overlay_gc_->SetPenStyle(CGraphicsContext::ESolidPen);
     }
+    void Label(const TRect& area, const TDesC& text) {
+        const TInt baseline = (area.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
+        overlay_gc_->DrawText(text, area, baseline, CGraphicsContext::ECenter, 0);
+    }
     void DrawControls(const TRect& picture) {
         if (!overlay_gc_ || !font_) return;
         if (!touch_.Handle()) {
@@ -207,6 +211,7 @@ public:
         overlay_gc_->SetPenStyle(CGraphicsContext::ENullPen);
         overlay_gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
         Restore(layout.toggle, picture);
+        Restore(layout.mode, picture);
         for (const TRect& button : layout.buttons) Restore(button, picture);
         if (!(state & Ngage::kTouchActive)) return;
         const bool hidden = state & Ngage::kTouchHidden;
@@ -220,11 +225,13 @@ public:
         if (hidden) return;
         overlay_gc_->UseFont(font_);
         for (TInt i = 0; i < Ngage::kTouchButtons; ++i) {
-            const TRect& area = layout.buttons[i];
-            Control(area, state & (1 << i));
-            const TInt baseline = (area.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
-            overlay_gc_->DrawText(Ngage::TouchLabel(i), area, baseline, CGraphicsContext::ECenter, 0);
+            if (!Ngage::TouchButtonShown(i, state)) continue;
+            Control(layout.buttons[i], state & (1 << i));
+            Label(layout.buttons[i], Ngage::TouchLabel(i));
         }
+        // The switch names the keys it brings up.
+        Control(layout.mode, false);
+        if (state & Ngage::kTouchKeypadShown) Label(layout.mode, _L("AB")); else Label(layout.mode, _L("123"));
         overlay_gc_->DiscardFont();
     }
     void Destroy(TRequestStatus& status) override {

@@ -115,6 +115,10 @@ A and B send Enter and Backspace, the primary and secondary action keys of
 the N97 NGI input profile that Symbian^3 selects. That profile has no keypad
 digits, so phone-keypad keys such as 5 and 7 reach the game unmapped.
 
+A switch at the lower left replaces A and B with a phone keypad (1-9, *, 0, #)
+and back; the pad, L and R stay in both layouts. The keypad keys are sent with
+the scan codes and characters of a hardware keypad.
+
 L/R cannot be implemented simply by sending Enter/Backspace. Following NGI's
 original pointer path, a source-built Thumb adapter augments the pinned
 `ngiinput.dll`'s standard 32-bit and internal 64-bit lookups. It maps

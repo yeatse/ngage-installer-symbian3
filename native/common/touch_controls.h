@@ -6,12 +6,22 @@
 namespace Ngage {
 constexpr TUint32 kTouchServiceSid = 0xe0000960;
 enum TouchButton { kTouchUp, kTouchLeft, kTouchOk, kTouchRight, kTouchDown, kTouchPadButtons,
-                   kTouchA = kTouchPadButtons, kTouchB, kTouchL, kTouchR, kTouchButtons };
+                   kTouchA = kTouchPadButtons, kTouchB, kTouchL, kTouchR,
+                   // Phone keypad in rows: 1 2 3, 4 5 6, 7 8 9, * 0 #.
+                   kTouchKeypad, kTouchButtons = kTouchKeypad + 12 };
 // Property value: one bit per held button, then these flags. The key is the game's process ID.
-constexpr TInt kTouchHidden = 1 << kTouchButtons, kTouchActive = 2 << kTouchButtons;
+constexpr TInt kTouchHidden = 1 << kTouchButtons, kTouchActive = 2 << kTouchButtons,
+               kTouchKeypadShown = 4 << kTouchButtons;
+// The keypad takes the place of A and B; the pad, L and R stay.
+inline TBool TouchButtonShown(TInt button, TInt state) {
+    if (button == kTouchA || button == kTouchB) return !(state & kTouchKeypadShown);
+    return button < kTouchKeypad || (state & kTouchKeypadShown);
+}
 
 inline TPtrC TouchLabel(TInt button) {
-    static const char16_t* const labels[kTouchButtons] = {u"↑", u"←", u"OK", u"→", u"↓", u"A", u"B", u"L", u"R"};
+    static const char16_t* const labels[kTouchButtons] = {
+        u"↑", u"←", u"OK", u"→", u"↓", u"A", u"B", u"L", u"R",
+        u"1", u"2", u"3", u"4", u"5", u"6", u"7", u"8", u"9", u"*", u"0", u"#"};
     return TPtrC(reinterpret_cast<const TUint16*>(labels[button]));
 }
 
@@ -19,6 +29,7 @@ struct TouchLayout {
     TInt unit;
     TPoint pad_center;
     TRect toggle;
+    TRect mode;
     TRect buttons[kTouchButtons];
 
     explicit TouchLayout(const TSize& screen) {
@@ -36,6 +47,13 @@ struct TouchLayout {
         buttons[kTouchL] = TRect(right, screen.iHeight - unit - 8, right + unit, screen.iHeight - 8);
         buttons[kTouchR] = TRect(right, 8, right + unit, 8 + unit);
         toggle = TRect(6, 8, 38, 40);
+        mode = TRect(6, screen.iHeight - 40, 6 + unit, screen.iHeight - 8);
+        const TInt left = screen.iWidth - 8 - 3 * unit, top = (screen.iHeight - 4 * unit) / 2;
+        for (TInt i = 0; i < 12; ++i) {
+            const TInt keypad_row = (i * 11) >> 5;  // i / 3 without a division routine
+            buttons[kTouchKeypad + i] = TRect(TPoint(left + (i - keypad_row * 3) * unit, top + keypad_row * unit),
+                                              TSize(unit, unit));
+        }
     }
     // The pad takes touches in its corners and a little beyond the drawn cross.
     TRect PadArea() const {

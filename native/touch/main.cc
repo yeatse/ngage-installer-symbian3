@@ -14,7 +14,7 @@ struct Binding {
     TInt scan;
     TInt code;
 };
-constexpr std::array<Binding, 9> kBindings{{
+constexpr std::array<Binding, 21> kBindings{{
     {EStdKeyUpArrow, EKeyUpArrow},
     {EStdKeyLeftArrow, EKeyLeftArrow},
     {EStdKeyDevice3, EKeyDevice3},
@@ -23,7 +23,10 @@ constexpr std::array<Binding, 9> kBindings{{
     // Primary/secondary action keys of the N97 NGI input profile that Symbian^3 selects.
     {EStdKeyEnter, EKeyEnter}, {EStdKeyBackspace, EKeyBackspace},
     {EStdKeyDevice0, EKeyDevice0},
-    {EStdKeyDevice1, EKeyDevice1}
+    {EStdKeyDevice1, EKeyDevice1},
+    // Phone keypad keys reach the game as they do from a hardware keypad.
+    {'1', '1'}, {'2', '2'}, {'3', '3'}, {'4', '4'}, {'5', '5'}, {'6', '6'},
+    {'7', '7'}, {'8', '8'}, {'9', '9'}, {'*', '*'}, {'0', '0'}, {EStdKeyHash, '#'}
 }};
 
 static_assert(EStdKeyDevice0 == 0xa4 && EStdKeyDevice1 == 0xa5);
@@ -65,6 +68,7 @@ class Controls {
     unsigned clock_ = 0;
     bool active_ = false;
     bool hidden_ = false;
+    bool keypad_ = false;
     bool requests_ = false;
     enum : int { kNowhere = -1, kPad = -2 };
 
@@ -97,7 +101,8 @@ class Controls {
     }
 
     void Publish() {
-        TInt value = (active_ ? Ngage::kTouchActive : 0) | (hidden_ ? Ngage::kTouchHidden : 0);
+        TInt value = (active_ ? Ngage::kTouchActive : 0) | (hidden_ ? Ngage::kTouchHidden : 0) |
+                     (keypad_ ? Ngage::kTouchKeypadShown : 0);
         for (int i = 0; i < kButtonCount; ++i) if (held_[i]) value |= Bit(i);
         if (value == published_ || !state_.Handle()) return;
         published_ = value;
@@ -188,9 +193,16 @@ class Controls {
                 return;
             }
             if (hidden_) return;
+            if (layout_.mode.Contains(position)) {
+                ReleaseAll();
+                keypad_ = !keypad_;
+                Publish();
+                return;
+            }
+            const TInt shown = keypad_ ? Ngage::kTouchKeypadShown : 0;
             if (layout_.PadArea().Contains(position)) origin_[number] = kPad;
             for (int i = Ngage::kTouchPadButtons; i < kButtonCount; ++i)
-                if (layout_.buttons[i].Contains(position)) origin_[number] = i;
+                if (Ngage::TouchButtonShown(i, shown) && layout_.buttons[i].Contains(position)) origin_[number] = i;
         }
         const int origin = origin_[number];
         if (origin == kPad) {

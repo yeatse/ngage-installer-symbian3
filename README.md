@@ -29,6 +29,7 @@ the phone.
 - The pad has eight directions: touch between two arrows for a diagonal, and slide
   your thumb to change direction without lifting it.
 - The button at the upper left hides or shows the controls.
+- The button at the lower left switches the right side between A/B and a number keypad.
 - The phone's volume keys change the game volume.
 
 ## More
