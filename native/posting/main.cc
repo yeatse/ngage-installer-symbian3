@@ -46,6 +46,11 @@ RChunk CPostingSurface::TPostingBufferChunk::GetChunk() { return iChunk; }
 __attribute__((visibility("default")))
 TUint CPostingSurface::TPostingBufferChunk::GetOffsetInChunk() { return iOffsetInChunk; }
 
+// The compiler zeroes Surface's members through this EABI helper, which nothing linked here provides.
+extern "C" __attribute__((no_builtin("memset"))) void __aeabi_memclr4(void* data, unsigned size) {
+    for (auto* byte = static_cast<volatile unsigned char*>(data); size; --size) *byte++ = 0;
+}
+
 namespace {
 void StartControls() {
     RMutex existing;
@@ -152,8 +157,7 @@ class Surface final : public CPostingSurface {
     RSurfaceUpdateSession updates_;
     TSurfaceId id_ = TSurfaceId::CreateNullId();
     RChunk shared_;
-    RWindowGroup group_;
-    RBlankWindow window_;
+    RWindow* game_ = nullptr;
     TUint8* target_ = nullptr;
     TSize size_{0, 0};
     TInt pitch_ = 0;
@@ -167,8 +171,9 @@ public:
         if (fbs_connected_) RFbsSession::Disconnect();
         if (connected_) ws_.Close();
     }
-    void ConstructL(TInt screen) {
+    void ConstructL(TInt screen, RWindow* game) {
         if (screen != 0) User::Leave(KErrNotSupported);
+        game_ = game;
         User::LeaveIfError(ws_.Connect()); connected_ = true;
         screen_ = new(ELeave) CWsScreenDevice(ws_);
         User::LeaveIfError(screen_->Construct(screen));
@@ -191,14 +196,12 @@ public:
             User::Leave(KErrArgument);
         if (source.iBufferType != EChunkBuffer && source.iBufferType != EStandardBuffer)
             User::Leave(KErrNotSupported);
-        // The window stays up across a new source: closing it hands the screen back to the game's
-        // window for a moment, and the game starts over again.
         Release();
         delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr;
         source_ = source.iSourceImageSize; pixel_ = PixelOf(source.iPostingFormat);
         buffer_.CreateL(source_, BytesOf(pixel_));
         User::LeaveIfError(SetPostingParameters(destination));
-        if (target_ && size_ != screen_->SizeInPixels()) CloseSurface();
+        if (target_ && size_ != screen_->SizeInPixels()) { game_->RemoveBackgroundSurface(ETrue); CloseSurface(); }
         if (!target_ && !OpenSurface(screen_->SizeInPixels())) {
             CloseSurface();
             // Matches CDirectScreenAccess: the DSA buffer follows the current app orientation.
@@ -228,8 +231,9 @@ public:
         User::LeaveIfError(overlay_->GetNearestFontInPixels(font_, TFontSpec(_L("Nokia Sans S60"), layout.unit / 2)));
     }
     TUint8* Frame() { return target_ ? target_ : reinterpret_cast<TUint8*>(bitmap_.DataAddress()); }
-    // One mapped XRGB buffer of the screen's size, on a window that takes no focus.
+    // One mapped XRGB buffer of the screen's size, shown as the background of the game's window.
     bool OpenSurface(TSize size) {
+        if (!game_ || !game_->WsHandle()) return false;
         if (manager_.Open() != KErrNone) return false;
         manager_open_ = true;
         RSurfaceManager::TSurfaceCreationAttributesBuf package;
@@ -251,26 +255,14 @@ public:
         if (manager_.MapSurface(id_, shared_) != KErrNone || manager_.GetBufferOffset(id_, 0, offset) != KErrNone)
             return false;
         if (updates_.Connect() != KErrNone) return false;
-        group_ = RWindowGroup(ws_);
-        if (group_.Construct(reinterpret_cast<TUint32>(&group_), EFalse) != KErrNone) return false;
-        group_.EnableReceiptOfFocus(EFalse);
-        window_ = RBlankWindow(ws_);
-        if (window_.Construct(group_, reinterpret_cast<TUint32>(&window_)) != KErrNone) return false;
-        window_.SetExtent(TPoint(0, 0), size);
-        window_.SetColor(TRgb(0, 0, 0));
         TSurfaceConfiguration configuration;
         configuration.SetSurfaceId(id_);
-        if (window_.SetBackgroundSurface(configuration, ETrue) != KErrNone) return false;
-        window_.Activate();
-        group_.SetOrdinalPosition(0);
-        ws_.Flush();
+        if (game_->SetBackgroundSurface(configuration, ETrue) != KErrNone) return false;
         target_ = shared_.Base() + offset; size_ = size; pitch_ = size.iWidth * 4;
         return true;
     }
     void CloseSurface() {
         target_ = nullptr;
-        if (window_.WsHandle()) window_.Close();
-        if (group_.WsHandle()) group_.Close();
         updates_.Close();
         shared_.Close();
         if (manager_open_) {
@@ -427,7 +419,6 @@ public:
             thread.Close();
             if (!foreground) return KErrNone;
             focus_ = group;
-            if (target_) { group_.SetOrdinalPosition(0); ws_.Flush(); }
         }
         if (!buffer || buffer->GetSize() != source_ || !buffer->GetBuffer()) return KErrArgument;
         if (!target_ && (!direct_ || !gc_)) return KErrNotReady;
@@ -522,9 +513,11 @@ public:
 };}
 
 CPostingSurfaceFactory::~CPostingSurfaceFactory() = default;
+// The patched ngibackbuffer.dll passes its game window where the unpatched one passes display 0.
 CPostingSurface* CPostingSurfaceFactory::NewPostingSurfaceL(TInt display) {
+    auto* game = static_cast<TUint>(display) > 0xffff ? reinterpret_cast<RWindow*>(display) : nullptr;
     auto* surface = new(ELeave) Surface;
-    CleanupStack::PushL(surface); surface->ConstructL(display); CleanupStack::Pop(surface);
+    CleanupStack::PushL(surface); surface->ConstructL(0, game); CleanupStack::Pop(surface);
     return surface;
 }
 __attribute__((visibility("default")))

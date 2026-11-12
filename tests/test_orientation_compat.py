@@ -13,7 +13,7 @@ from audio_compat import bytepair_image
 from component_identity import header_crc
 from extract_client import extract_client
 from merge_packages import data_units
-from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP, DISPLAY_ENTRY,
+from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP, DISPLAY_ENTRY, WINDOW,
                                 DISPLAY_SHA256, DISPLAY_STUB, FORMAT, ORIENTATION_ENTRY,
                                 VISIBLE_ENTRY, VISIBLE_STUB,
                                 ORIENTATION_IMPORTS, ORIENTATION_SHA256, ORIENTATION_STUB,
@@ -78,7 +78,7 @@ class OrientationCompatibilityTests(unittest.TestCase):
 
     def test_only_the_pinned_instructions_change(self):
         sha = BACKBUFFER_SHA256
-        patches = (DIMENSION_SWAP, *FORMAT)
+        patches = (DIMENSION_SWAP, *WINDOW, *FORMAT)
         plain, patched = bytepair_image(self.raw[sha]), patch_code(self.raw[sha], sha, *patches)
         expected = bytearray(plain)
         for address, before, after in patches:

@@ -22,15 +22,16 @@ Hooked has passed emulator gameplay checks and user validation on Nokia 808 Bell
 
 Presentation converts frames into a software RGB picture. Where the phone has
 the Symbian^3 surface manager, the picture is written straight into a mapped
-XRGB compositor surface that is the background of a full-screen window in a
-window group of our own that takes no focus, and each frame is handed over with
-`RSurfaceUpdateSession::SubmitUpdate`. The window and surface are kept when the
-game initialises a new source, because closing them uncovers the game window
-and makes it start over. This path is experimental and not yet validated on a
-phone: the window covers the game window and empties its DSA region, which
-some games may answer by not posting.
+XRGB compositor surface that is the background surface of the game's own
+window, and each frame is handed over with
+`RSurfaceUpdateSession::SubmitUpdate`. The window comes from
+`ngibackbuffer.dll`: the installer patches its two `NewPostingSurfaceL` calls to
+pass the address of the `RWindow` it already holds for direct screen access in
+place of display 0. Nothing covers the game's window, so its visibility and DSA
+region stay as the game expects. The surface is kept when the game initialises
+a new source. This path is experimental and not yet validated on a phone.
 
-If any surface call fails, the picture is blitted into the window server's DSA
+If no window was passed or any surface call fails, the picture is blitted into the window server's DSA
 buffer through `CFbsScreenDevice`, as `CDirectScreenAccess` does. The window
 server shows that buffer only inside the game's running DSA region, and the
 region passed to `SetClipRegion` further clips each frame. No emulator-specific

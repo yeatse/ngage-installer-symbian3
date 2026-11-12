@@ -36,7 +36,8 @@ files, so their files pass to the N-Gage package.
 
 A native Display Posting API compatibility DLL presents the game through the
 phone's existing window and bitmap services. Frames are written into a compositor
-surface shown by a window of its own (experimental, not yet validated on a
+surface set as the background of the game's own window, which a patched
+`ngibackbuffer.dll` passes to the DLL (experimental, not yet validated on a
 phone); if the surface manager is unavailable they are drawn into the window
 server's direct screen access buffer, which is composed only inside the game's
 running DSA region. It

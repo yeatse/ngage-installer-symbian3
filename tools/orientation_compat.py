@@ -34,6 +34,9 @@ VISIBLE_STUB = 0x8a70, 0x8a92
 VISIBLE_SYMBOLS = {'ngage_display_skip': 0x8ec1, 'ngage_display_notify': 0x8eb7}
 # Portrait backbuffers keep their own width and height instead of being swapped to landscape.
 DIMENSION_SWAP = 0xd3e4, struct.pack('<I', 0x1a000010), struct.pack('<I', 0xea000020)
+# The posting factory is given the backbuffer's game window (add r1, r4, #0x2c) instead of display 0.
+WINDOW = ((0xd664, struct.pack('<I', 0xe1a01006), struct.pack('<I', 0xe284102c)),
+          (0xdda0, struct.pack('<I', 0xe3a01000), struct.pack('<I', 0xe284102c)))
 # Every 16-bit backbuffer (RGB444, RGB555 and RGB565, low byte 0x10) is two bytes per pixel and is
 # posted as KPostPlatformDependent | NGI format, which the posting stand-in decodes. NGI otherwise
 # would treat RGB444 and RGB555 as four-byte RGBx888.
@@ -415,5 +418,5 @@ def adapt_orientation(package, stubs):
                              'ngidisplay.dll')
     return replace_images(package, BACKBUFFER_SHA256,
                           lambda raw: patch_code(raw, BACKBUFFER_SHA256, DIMENSION_SWAP,
-                                                         *FORMAT),
+                                                         *WINDOW, *FORMAT),
                           'ngibackbuffer.dll')
