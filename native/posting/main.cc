@@ -121,6 +121,57 @@ public:
 
 // Frames go to a compositor surface shown by a window of our own. Where the device has none they go
 // to the window server's DSA buffer, which it composes only inside the caller's running DSA region.
+// The surface DLLs are loaded by name and called by ordinal, so a phone without them still gets the DSA path.
+class Compositor {
+    RLibrary manager_library_, update_library_;
+    TUint32 manager_[8], updates_[16];
+    bool loaded_ = false, open_ = false, connected_ = false;
+    template <typename Result, typename... Arguments>
+    static Result Call(RLibrary& library, void* object, TInt ordinal, Arguments... arguments) {
+        return reinterpret_cast<Result (*)(void*, Arguments...)>(library.Lookup(ordinal))(object, arguments...);
+    }
+public:
+    bool Open() {
+        if (!loaded_) {
+            if (manager_library_.Load(_L("surfacemanager.dll")) != KErrNone) return false;
+            if (update_library_.Load(_L("surfaceupdateclient.dll")) != KErrNone) { manager_library_.Close(); return false; }
+            static const TInt manager[] = {1, 4, 5, 12, 13, 14, 16}, update[] = {1, 6, 7, 8};
+            bool complete = true;
+            for (TInt ordinal : manager) complete = complete && manager_library_.Lookup(ordinal);
+            for (TInt ordinal : update) complete = complete && update_library_.Lookup(ordinal);
+            if (!complete) { manager_library_.Close(); update_library_.Close(); return false; }
+            loaded_ = true;
+        }
+        Call<void>(manager_library_, manager_, 14);
+        if (Call<TInt>(manager_library_, manager_, 12) != KErrNone) return false;
+        open_ = true;
+        Call<void>(update_library_, updates_, 8);
+        if (Call<TInt, TInt>(update_library_, updates_, 7, KDefaultMessageSlot) != KErrNone) return false;
+        connected_ = true;
+        return true;
+    }
+    TInt Create(const RSurfaceManager::TSurfaceCreationAttributesBuf& attributes, TSurfaceId& id) {
+        return Call<TInt, const TDesC8*, TSurfaceId*>(manager_library_, manager_, 5, &attributes, &id);
+    }
+    TInt Map(const TSurfaceId& id, RChunk& chunk) {
+        return Call<TInt, const TSurfaceId*, RChunk*>(manager_library_, manager_, 1, &id, &chunk);
+    }
+    TInt Offset(const TSurfaceId& id, TInt& offset) {
+        return Call<TInt, const TSurfaceId*, TInt, TInt*>(manager_library_, manager_, 16, &id, 0, &offset);
+    }
+    void Destroy(const TSurfaceId& id) { if (open_) Call<TInt, const TSurfaceId*>(manager_library_, manager_, 4, &id); }
+    void Submit(const TSurfaceId& id) {
+        Call<TInt, TInt, const TSurfaceId*, TInt, const TRegion*>(update_library_, updates_, 1, KAllScreens, &id, 0,
+                                                                  nullptr);
+    }
+    void Close() {
+        if (connected_) Call<void>(update_library_, updates_, 6);
+        if (open_) Call<void>(manager_library_, manager_, 13);
+        connected_ = open_ = false;
+    }
+    void Unload() { Close(); manager_library_.Close(); update_library_.Close(); loaded_ = false; }
+};
+
 class Surface final : public CPostingSurface {
     RWsSession ws_;
     CWsScreenDevice* screen_ = nullptr;
@@ -152,9 +203,7 @@ class Surface final : public CPostingSurface {
     TUint shown_ = 0;
     TUint8 scratch_[48 * 48];
     TInt focus_ = 0;
-    RSurfaceManager manager_;
-    bool manager_open_ = false;
-    RSurfaceUpdateSession updates_;
+    Compositor compositor_;
     TSurfaceId id_ = TSurfaceId::CreateNullId();
     RChunk shared_;
     RWindow* game_ = nullptr;
@@ -234,8 +283,7 @@ public:
     // One mapped XRGB buffer of the screen's size, shown as the background of the game's window.
     bool OpenSurface(TSize size) {
         if (!game_ || !game_->WsHandle()) return false;
-        if (manager_.Open() != KErrNone) return false;
-        manager_open_ = true;
+        if (!compositor_.Open()) return false;
         RSurfaceManager::TSurfaceCreationAttributesBuf package;
         RSurfaceManager::TSurfaceCreationAttributes& attributes = package();
         attributes.iSize = size;
@@ -251,10 +299,8 @@ public:
         attributes.iHintCount = 0;
         attributes.iMappable = ETrue;
         TInt offset = 0;
-        if (manager_.CreateSurface(package, id_) != KErrNone) { id_ = TSurfaceId::CreateNullId(); return false; }
-        if (manager_.MapSurface(id_, shared_) != KErrNone || manager_.GetBufferOffset(id_, 0, offset) != KErrNone)
-            return false;
-        if (updates_.Connect() != KErrNone) return false;
+        if (compositor_.Create(package, id_) != KErrNone) { id_ = TSurfaceId::CreateNullId(); return false; }
+        if (compositor_.Map(id_, shared_) != KErrNone || compositor_.Offset(id_, offset) != KErrNone) return false;
         TSurfaceConfiguration configuration;
         configuration.SetSurfaceId(id_);
         if (game_->SetBackgroundSurface(configuration, ETrue) != KErrNone) return false;
@@ -263,12 +309,9 @@ public:
     }
     void CloseSurface() {
         target_ = nullptr;
-        updates_.Close();
         shared_.Close();
-        if (manager_open_) {
-            if (!id_.IsNull()) manager_.CloseSurface(id_);
-            manager_.Close(); manager_open_ = false;
-        }
+        if (!id_.IsNull()) compositor_.Destroy(id_);
+        compositor_.Close();
         id_ = TSurfaceId::CreateNullId();
     }
     enum { kToggle = Ngage::kTouchButtons, kMode, kItems };
@@ -479,7 +522,7 @@ public:
         }
         Blend(frame, pitch, area);
         bitmap_.EndDataAccess();
-        if (target_) { updates_.SubmitUpdate(KAllScreens, id_, 0, nullptr); return KErrNone; }
+        if (target_) { compositor_.Submit(id_); return KErrNone; }
         RRegion update;
         update.AddRect(TRect(TPoint(0, 0), size));
         if (clip_set_) update.Intersect(clip_);
@@ -504,7 +547,7 @@ public:
         buffer_.Close(); bitmap_.Reset(); cache_.Reset();
         cache_state_ = -1; shown_ = 0; mapped_ = false;
     }
-    void ReleaseDirect() { CloseSurface(); delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr; }
+    void ReleaseDirect() { CloseSurface(); compositor_.Unload(); delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr; }
     TInt SetClipRegion(const TRegion& region) override {
         clip_.Copy(region);
         clip_set_ = true;

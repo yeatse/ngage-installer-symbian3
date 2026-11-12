@@ -37,9 +37,11 @@ server shows that buffer only inside the game's running DSA region, and the
 region passed to `SetClipRegion` further clips each frame. No emulator-specific
 library replacement is used.
 
-`include/` holds the surface headers and `defs/` the frozen exports of
-`surfacemanager.dll` and `surfaceupdateclient.dll` from the Symbian Foundation
-graphics package (EPL 1.0); the build makes import libraries from the latter.
+`include/` holds the surface headers from the Symbian Foundation graphics
+package (EPL 1.0). `surfacemanager.dll` and `surfaceupdateclient.dll` are not
+linked: they are loaded by name when the first source is initialised and called
+by their frozen export ordinals, so a phone where they cannot be loaded still
+starts the game and uses the DSA path.
 The first 16 original factory/buffer exports retain their ordinal ABI.
 
 The factory starts the background touch-control service without bringing
