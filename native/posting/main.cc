@@ -6,6 +6,9 @@
 #include <fbs.h>
 #include <w32std.h>
 #include <e32property.h>
+#include <graphics/surfacemanager.h>
+#include <graphics/surfaceupdateclient.h>
+#include <graphics/surfaceconfiguration.h>
 #include "../common/touch_controls.h"
 #include "../common/touch_service.h"
 
@@ -111,8 +114,8 @@ public:
     void Close() { iChunk.Close(); iBuffer = nullptr; }
 };
 
-// Frames go to the window server's DSA buffer, which it composes only inside the
-// caller's running DSA region. A window of our own would empty that region.
+// Frames go to a compositor surface shown by a window of our own. Where the device has none they go
+// to the window server's DSA buffer, which it composes only inside the caller's running DSA region.
 class Surface final : public CPostingSurface {
     RWsSession ws_;
     CWsScreenDevice* screen_ = nullptr;
@@ -144,6 +147,16 @@ class Surface final : public CPostingSurface {
     TUint shown_ = 0;
     TUint8 scratch_[48 * 48];
     TInt focus_ = 0;
+    RSurfaceManager manager_;
+    bool manager_open_ = false;
+    RSurfaceUpdateSession updates_;
+    TSurfaceId id_ = TSurfaceId::CreateNullId();
+    RChunk shared_;
+    RWindowGroup group_;
+    RBlankWindow window_;
+    TUint8* target_ = nullptr;
+    TSize size_{0, 0};
+    TInt pitch_ = 0;
 public:
     ~Surface() override {
         Destroy();
@@ -178,32 +191,93 @@ public:
             User::Leave(KErrArgument);
         if (source.iBufferType != EChunkBuffer && source.iBufferType != EStandardBuffer)
             User::Leave(KErrNotSupported);
-        Release(); ReleaseDirect();
+        // The window stays up across a new source: closing it hands the screen back to the game's
+        // window for a moment, and the game starts over again.
+        Release();
+        delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr;
         source_ = source.iSourceImageSize; pixel_ = PixelOf(source.iPostingFormat);
         buffer_.CreateL(source_, BytesOf(pixel_));
         User::LeaveIfError(SetPostingParameters(destination));
-        // Matches CDirectScreenAccess: the DSA buffer follows the current app orientation.
-        direct_ = CFbsScreenDevice::NewL(screen_->GetScreenNumber(), screen_->DisplayMode());
-        direct_->SetAutoUpdate(EFalse);
-        TPixelsAndRotation rotation;
-        screen_->GetDefaultScreenSizeAndRotation(rotation);
-        direct_->SetDeviceOrientation(static_cast<TDeviceOrientation>(1 << rotation.iRotation));
-        User::LeaveIfError(direct_->CreateContext(gc_));
-        User::LeaveIfError(bitmap_.Create(direct_->SizeInPixels(), EColor16MU));
+        if (target_ && size_ != screen_->SizeInPixels()) CloseSurface();
+        if (!target_ && !OpenSurface(screen_->SizeInPixels())) {
+            CloseSurface();
+            // Matches CDirectScreenAccess: the DSA buffer follows the current app orientation.
+            direct_ = CFbsScreenDevice::NewL(screen_->GetScreenNumber(), screen_->DisplayMode());
+            direct_->SetAutoUpdate(EFalse);
+            TPixelsAndRotation rotation;
+            screen_->GetDefaultScreenSizeAndRotation(rotation);
+            direct_->SetDeviceOrientation(static_cast<TDeviceOrientation>(1 << rotation.iRotation));
+            User::LeaveIfError(direct_->CreateContext(gc_));
+            User::LeaveIfError(bitmap_.Create(direct_->SizeInPixels(), EColor16MU));
+            size_ = bitmap_.SizeInPixels(); pitch_ = bitmap_.DataStride();
+        }
+        if (size_.iWidth > 640 || size_.iHeight > 640 || (pitch_ & 3)) User::Leave(KErrNotSupported);
         bitmap_.BeginDataAccess();
-        auto* pixels = reinterpret_cast<TUint32*>(bitmap_.DataAddress());
-        const TInt count = bitmap_.DataStride() / 4 * bitmap_.SizeInPixels().iHeight;
+        auto* pixels = reinterpret_cast<TUint32*>(Frame());
+        const TInt count = pitch_ / 4 * size_.iHeight;
         for (TInt i = 0; i < count; ++i) pixels[i] = 0xff000000u;
         bitmap_.EndDataAccess();
         for (TUint i = 0; i < 256; ++i) {
             low_[i] = 0xff000000u | Expand(pixel_, i);
             high_[i] = Expand(pixel_, i << 8);
         }
-        User::LeaveIfError(cache_.Create(bitmap_.SizeInPixels(), EColor16MU));
+        User::LeaveIfError(cache_.Create(size_, EColor16MU));
         overlay_ = CFbsBitmapDevice::NewL(&cache_);
         User::LeaveIfError(overlay_->CreateContext(overlay_gc_));
-        const Ngage::TouchLayout layout(bitmap_.SizeInPixels());
+        const Ngage::TouchLayout layout(size_);
         User::LeaveIfError(overlay_->GetNearestFontInPixels(font_, TFontSpec(_L("Nokia Sans S60"), layout.unit / 2)));
+    }
+    TUint8* Frame() { return target_ ? target_ : reinterpret_cast<TUint8*>(bitmap_.DataAddress()); }
+    // One mapped XRGB buffer of the screen's size, on a window that takes no focus.
+    bool OpenSurface(TSize size) {
+        if (manager_.Open() != KErrNone) return false;
+        manager_open_ = true;
+        RSurfaceManager::TSurfaceCreationAttributesBuf package;
+        RSurfaceManager::TSurfaceCreationAttributes& attributes = package();
+        attributes.iSize = size;
+        attributes.iBuffers = 1;
+        attributes.iPixelFormat = EUidPixelFormatXRGB_8888;
+        attributes.iStride = size.iWidth * 4;
+        attributes.iOffsetToFirstBuffer = 0;
+        attributes.iAlignment = 4;
+        attributes.iContiguous = EFalse;
+        attributes.iCacheAttrib = RSurfaceManager::ECached;
+        attributes.iOffsetBetweenBuffers = 0;
+        attributes.iSurfaceHints = nullptr;
+        attributes.iHintCount = 0;
+        attributes.iMappable = ETrue;
+        TInt offset = 0;
+        if (manager_.CreateSurface(package, id_) != KErrNone) { id_ = TSurfaceId::CreateNullId(); return false; }
+        if (manager_.MapSurface(id_, shared_) != KErrNone || manager_.GetBufferOffset(id_, 0, offset) != KErrNone)
+            return false;
+        if (updates_.Connect() != KErrNone) return false;
+        group_ = RWindowGroup(ws_);
+        if (group_.Construct(reinterpret_cast<TUint32>(&group_), EFalse) != KErrNone) return false;
+        group_.EnableReceiptOfFocus(EFalse);
+        window_ = RBlankWindow(ws_);
+        if (window_.Construct(group_, reinterpret_cast<TUint32>(&window_)) != KErrNone) return false;
+        window_.SetExtent(TPoint(0, 0), size);
+        window_.SetColor(TRgb(0, 0, 0));
+        TSurfaceConfiguration configuration;
+        configuration.SetSurfaceId(id_);
+        if (window_.SetBackgroundSurface(configuration, ETrue) != KErrNone) return false;
+        window_.Activate();
+        group_.SetOrdinalPosition(0);
+        ws_.Flush();
+        target_ = shared_.Base() + offset; size_ = size; pitch_ = size.iWidth * 4;
+        return true;
+    }
+    void CloseSurface() {
+        target_ = nullptr;
+        if (window_.WsHandle()) window_.Close();
+        if (group_.WsHandle()) group_.Close();
+        updates_.Close();
+        shared_.Close();
+        if (manager_open_) {
+            if (!id_.IsNull()) manager_.CloseSurface(id_);
+            manager_.Close(); manager_open_ = false;
+        }
+        id_ = TSurfaceId::CreateNullId();
     }
     enum { kToggle = Ngage::kTouchButtons, kMode, kItems };
     static TRect ItemRect(const Ngage::TouchLayout& layout, TInt item) {
@@ -353,16 +427,16 @@ public:
             thread.Close();
             if (!foreground) return KErrNone;
             focus_ = group;
+            if (target_) { group_.SetOrdinalPosition(0); ws_.Flush(); }
         }
         if (!buffer || buffer->GetSize() != source_ || !buffer->GetBuffer()) return KErrArgument;
-        if (!direct_ || !gc_) return KErrNotReady;
+        if (!target_ && (!direct_ || !gc_)) return KErrNotReady;
 
-        auto* frame = reinterpret_cast<TUint8*>(bitmap_.DataAddress());
-        const TSize size = bitmap_.SizeInPixels();
-        const TInt pitch = bitmap_.DataStride();
+        auto* frame = Frame();
+        const TSize size = size_;
+        const TInt pitch = pitch_;
         if (!frame || size.iWidth <= 0 || size.iHeight <= 0) return KErrNotReady;
-        if (size.iWidth > 640 || size.iHeight > 640 || (reinterpret_cast<TUint>(frame) & 3) || (pitch & 3))
-            return KErrNotSupported;
+        if (reinterpret_cast<TUint>(frame) & 3) return KErrNotSupported;
         TRect output = destination_.iDisplayedRect;
         if (output.IsEmpty()) return KErrNone;
         if (!destination_.iScaleToRect.IsEmpty()) {
@@ -414,6 +488,7 @@ public:
         }
         Blend(frame, pitch, area);
         bitmap_.EndDataAccess();
+        if (target_) { updates_.SubmitUpdate(KAllScreens, id_, 0, nullptr); return KErrNone; }
         RRegion update;
         update.AddRect(TRect(TPoint(0, 0), size));
         if (clip_set_) update.Intersect(clip_);
@@ -438,7 +513,7 @@ public:
         buffer_.Close(); bitmap_.Reset(); cache_.Reset();
         cache_state_ = -1; shown_ = 0; mapped_ = false;
     }
-    void ReleaseDirect() { delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr; }
+    void ReleaseDirect() { CloseSurface(); delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr; }
     TInt SetClipRegion(const TRegion& region) override {
         clip_.Copy(region);
         clip_set_ = true;

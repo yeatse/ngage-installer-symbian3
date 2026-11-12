@@ -20,13 +20,25 @@ called again on the same surface.
 
 Hooked has passed emulator gameplay checks and user validation on Nokia 808 Belle FP2.
 
-Presentation converts frames into a software RGB bitmap and blits it into the
-window server's DSA buffer through `CFbsScreenDevice`, as `CDirectScreenAccess`
-does. The window server shows that buffer only inside the game's running DSA
-region, so overlapping windows such as the touch controls stay on top. The
-region passed to `SetClipRegion` further clips each frame. No separate
-presentation window is created: it would cover the game window and empty its
-DSA region. No emulator-specific library replacement is used.
+Presentation converts frames into a software RGB picture. Where the phone has
+the Symbian^3 surface manager, the picture is written straight into a mapped
+XRGB compositor surface that is the background of a full-screen window in a
+window group of our own that takes no focus, and each frame is handed over with
+`RSurfaceUpdateSession::SubmitUpdate`. The window and surface are kept when the
+game initialises a new source, because closing them uncovers the game window
+and makes it start over. This path is experimental and not yet validated on a
+phone: the window covers the game window and empties its DSA region, which
+some games may answer by not posting.
+
+If any surface call fails, the picture is blitted into the window server's DSA
+buffer through `CFbsScreenDevice`, as `CDirectScreenAccess` does. The window
+server shows that buffer only inside the game's running DSA region, and the
+region passed to `SetClipRegion` further clips each frame. No emulator-specific
+library replacement is used.
+
+`include/` holds the surface headers and `defs/` the frozen exports of
+`surfacemanager.dll` and `surfaceupdateclient.dll` from the Symbian Foundation
+graphics package (EPL 1.0); the build makes import libraries from the latter.
 The first 16 original factory/buffer exports retain their ordinal ABI.
 
 The factory starts the background touch-control service without bringing

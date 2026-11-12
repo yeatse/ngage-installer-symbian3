@@ -161,7 +161,7 @@ def main():
                    'game_data_recognizer': True,
                    'missing_rights_licence_status': 'full',
                    'guest_install_service': 'existing phone installation service',
-                   'guest_display': 'window server DSA buffer',
+                   'guest_display': 'compositor surface, else window server DSA buffer',
                    'portrait_presentation': 'unrotated, full height, centred',
                    'touch_capabilities': ['AllFiles', 'SwEvent'],
                    'posting_capabilities_mask': '000ffffe',
