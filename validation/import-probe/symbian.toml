@@ -1,0 +1,17 @@
+[project]
+architecture = "armv6"
+name = "import_probe"
+kind = "e32-import-experiment"
+cmake_preset = "symbian-pic"
+uid3 = 0xe000099c
+
+[package]
+uid = 0xe000099d
+name = "Import probe"
+vendor = "ngage-installer-symbian3"
+executable_name = "import_probe.exe"
+version = [1, 0, 0]
+
+[application]
+caption = "Import probe"
+short_caption = "Import"
