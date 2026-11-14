@@ -27,7 +27,7 @@ struct Library {
 };
 
 const Library kLibraries[] = {
-    {_S("ws32.dll"), {560, 662}, {598, 600, 609, 622}},
+    {_S("ws32.dll"), {0, -1}, {598, 600, 609, 622}},
     {_S("euser.dll"), {0, -1}, {1308, 1311, 1473, 1838, 1951}},
     {_S("bitgdi.dll"), {0, -1}, {14, 44, 52, 58, 247, 277}},
     {_S("fbscli.dll"), {0, -1}, {25, 117, 225, 249, 250}},
@@ -36,6 +36,18 @@ const Library kLibraries[] = {
     {_S("surfacemanager.dll"), {1, 17}, {}},
     {_S("surfaceupdateclient.dll"), {1, 11}, {}},
     {_S("PostingSurfaceFactory.dll"), {0, -1}, {1}},
+    // Copies of the posting DLL from import-probe-dlls.sis, each with some imports swapped for old ones.
+    {_S("psf_old.dll"), {0, -1}, {1}},
+    {_S("psf_new.dll"), {0, -1}, {1}},
+    {_S("psf_no598.dll"), {0, -1}, {1}},
+    {_S("psf_no600.dll"), {0, -1}, {1}},
+    {_S("psf_nows.dll"), {0, -1}, {1}},
+    {_S("psf_nolib.dll"), {0, -1}, {1}},
+    {_S("psf_nobuf.dll"), {0, -1}, {1}},
+    {_S("psf_noclr.dll"), {0, -1}, {1}},
+    {_S("psf_noeuser.dll"), {0, -1}, {1}},
+    {_S("psf_none.dll"), {0, -1}, {1}},
+    {_S("psf_nocaps.dll"), {0, -1}, {1}},
     {_S("ngibackbuffer.dll"), {0, -1}, {1}},
     {_S("ngidisplay.dll"), {0, -1}, {1}},
     {_S("ngigameorientation.dll"), {0, -1}, {1}},
@@ -150,7 +162,7 @@ TInt Run() {
     r = file.Replace(fs, _L("C:\\Data\\import_probe.txt"), EFileWrite | EFileShareExclusive);
     if (r != KErrNone) { fs.Close(); return r; }
     Log log(file);
-    LOG_LINE(log, _L8("import-probe 1"));
+    LOG_LINE(log, _L8("import-probe 2"));
     ProbeLibraries(log);
     ProbeSurface(log);
     LOG_LINE(log, _L8("done"));

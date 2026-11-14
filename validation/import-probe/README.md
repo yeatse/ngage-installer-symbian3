@@ -13,3 +13,8 @@ the libraries the posting DLL depends on by name, and writes to
 - the surface manager calls that need no window.
 
 Not part of the phone SIS. Build and package like validation/rg-load-probe.
+
+It also loads `psf_*.dll`, copies of the posting DLL in which groups of the
+imports added since v1.0.3 are swapped for ordinals that release already used,
+installed from a separate package. Which copies load tells which import the
+phone's loader refuses.
