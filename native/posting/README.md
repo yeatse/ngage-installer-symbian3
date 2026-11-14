@@ -41,7 +41,11 @@ library replacement is used.
 package (EPL 1.0). `surfacemanager.dll` and `surfaceupdateclient.dll` are not
 linked: they are loaded by name when the first source is initialised and called
 by their frozen export ordinals, so a phone where they cannot be loaded still
-starts the game and uses the DSA path.
+starts the game and uses the DSA path. `RWindowBase::SetBackgroundSurface` and
+`RemoveBackgroundSurface` are called the same way through ws32 ordinals 598 and
+600: the Nokia 808 resolves both, yet its loader refuses any image that imports
+ordinal 598 with KErrNotSupported. The row stride comes from `SurfaceInfo`; the
+808 pads a 360 pixel wide surface to 1472 bytes.
 The first 16 original factory/buffer exports retain their ordinal ABI.
 
 The factory starts the background touch-control service without bringing

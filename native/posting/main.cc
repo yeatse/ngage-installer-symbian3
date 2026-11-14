@@ -122,8 +122,10 @@ public:
 // Frames go to a compositor surface shown by a window of our own. Where the device has none they go
 // to the window server's DSA buffer, which it composes only inside the caller's running DSA region.
 // The surface DLLs are loaded by name and called by ordinal, so a phone without them still gets the DSA path.
+// So are the two window calls: the 808's loader refuses an image that imports ws32's SetBackgroundSurface.
 class Compositor {
-    RLibrary manager_library_, update_library_;
+    enum { kShow = 598, kHide = 600 };
+    RLibrary manager_library_, update_library_, window_library_;
     TUint32 manager_[8], updates_[16];
     bool loaded_ = false, open_ = false, connected_ = false;
     template <typename Result, typename... Arguments>
@@ -135,11 +137,12 @@ public:
         if (!loaded_) {
             if (manager_library_.Load(_L("surfacemanager.dll")) != KErrNone) return false;
             if (update_library_.Load(_L("surfaceupdateclient.dll")) != KErrNone) { manager_library_.Close(); return false; }
-            static const TInt manager[] = {1, 4, 5, 12, 13, 14, 16}, update[] = {1, 6, 7, 8};
-            bool complete = true;
+            if (window_library_.Load(_L("ws32.dll")) != KErrNone) { manager_library_.Close(); update_library_.Close(); return false; }
+            static const TInt manager[] = {1, 3, 4, 5, 12, 13, 14, 16}, update[] = {1, 6, 7, 8};
+            bool complete = window_library_.Lookup(kShow) && window_library_.Lookup(kHide);
             for (TInt ordinal : manager) complete = complete && manager_library_.Lookup(ordinal);
             for (TInt ordinal : update) complete = complete && update_library_.Lookup(ordinal);
-            if (!complete) { manager_library_.Close(); update_library_.Close(); return false; }
+            if (!complete) { manager_library_.Close(); update_library_.Close(); window_library_.Close(); return false; }
             loaded_ = true;
         }
         Call<void>(manager_library_, manager_, 14);
@@ -156,6 +159,13 @@ public:
     TInt Map(const TSurfaceId& id, RChunk& chunk) {
         return Call<TInt, const TSurfaceId*, RChunk*>(manager_library_, manager_, 1, &id, &chunk);
     }
+    TInt Info(const TSurfaceId& id, RSurfaceManager::TInfoBuf& info) {
+        return Call<TInt, const TSurfaceId*, TDes8*>(manager_library_, manager_, 3, &id, &info);
+    }
+    TInt Show(RWindow& window, const TSurfaceConfiguration& configuration) {
+        return Call<TInt, const TSurfaceConfiguration*, TInt>(window_library_, &window, kShow, &configuration, ETrue);
+    }
+    void Hide(RWindow& window) { Call<void, TInt>(window_library_, &window, kHide, ETrue); }
     TInt Offset(const TSurfaceId& id, TInt& offset) {
         return Call<TInt, const TSurfaceId*, TInt, TInt*>(manager_library_, manager_, 16, &id, 0, &offset);
     }
@@ -169,7 +179,9 @@ public:
         if (open_) Call<void>(manager_library_, manager_, 13);
         connected_ = open_ = false;
     }
-    void Unload() { Close(); manager_library_.Close(); update_library_.Close(); loaded_ = false; }
+    void Unload() {
+        Close(); manager_library_.Close(); update_library_.Close(); window_library_.Close(); loaded_ = false;
+    }
 };
 
 class Surface final : public CPostingSurface {
@@ -250,7 +262,7 @@ public:
         source_ = source.iSourceImageSize; pixel_ = PixelOf(source.iPostingFormat);
         buffer_.CreateL(source_, BytesOf(pixel_));
         User::LeaveIfError(SetPostingParameters(destination));
-        if (target_ && size_ != screen_->SizeInPixels()) { game_->RemoveBackgroundSurface(ETrue); CloseSurface(); }
+        if (target_ && size_ != screen_->SizeInPixels()) { compositor_.Hide(*game_); CloseSurface(); }
         if (!target_ && !OpenSurface(screen_->SizeInPixels())) {
             CloseSurface();
             // Matches CDirectScreenAccess: the DSA buffer follows the current app orientation.
@@ -303,8 +315,11 @@ public:
         if (compositor_.Map(id_, shared_) != KErrNone || compositor_.Offset(id_, offset) != KErrNone) return false;
         TSurfaceConfiguration configuration;
         configuration.SetSurfaceId(id_);
-        if (game_->SetBackgroundSurface(configuration, ETrue) != KErrNone) return false;
-        target_ = shared_.Base() + offset; size_ = size; pitch_ = size.iWidth * 4;
+        // The driver may pad rows: the 808 gives a 360 pixel wide surface a 1472 byte stride.
+        RSurfaceManager::TInfoBuf info;
+        if (compositor_.Info(id_, info) != KErrNone || info().iStride < size.iWidth * 4) return false;
+        if (compositor_.Show(*game_, configuration) != KErrNone) return false;
+        target_ = shared_.Base() + offset; size_ = size; pitch_ = info().iStride;
         return true;
     }
     void CloseSurface() {
