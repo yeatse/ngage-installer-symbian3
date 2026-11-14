@@ -1,8 +1,10 @@
 #pragma once
 #include <e32std.h>
+#include <gdi.h>
 
-// Shared by the touch service, which reads the touches, and the posting surface, which draws the
-// controls into each game frame: the game cannot draw under a window, so none covers it.
+// Shared by the touch service, which reads the touches, and the posting surface. Over a compositor
+// surface the service draws the controls in a transparent window; a game drawing through the DSA
+// buffer cannot draw under a window, so there the posting surface blends them into each frame.
 namespace Ngage {
 constexpr TUint32 kTouchServiceSid = 0xe0000960;
 enum TouchButton { kTouchUp, kTouchLeft, kTouchOk, kTouchRight, kTouchDown, kTouchPadButtons,
@@ -12,6 +14,8 @@ enum TouchButton { kTouchUp, kTouchLeft, kTouchOk, kTouchRight, kTouchDown, kTou
 // Property value: one bit per held button, then these flags. The key is the game's process ID.
 constexpr TInt kTouchHidden = 1 << kTouchButtons, kTouchActive = 2 << kTouchButtons,
                kTouchKeypadShown = 4 << kTouchButtons;
+// The posting surface sets this property of the game's SID to 1 when it shows a compositor surface.
+constexpr TUint kTouchCompositorKey = kTouchServiceSid;
 // The keypad takes the place of A and B; the pad, L and R stay.
 inline TBool TouchButtonShown(TInt button, TInt state) {
     if (button == kTouchA || button == kTouchB) return !(state & kTouchKeypadShown);
@@ -62,4 +66,39 @@ struct TouchLayout {
         return TRect(pad_center - TPoint(reach, reach), pad_center + TPoint(reach, reach));
     }
 };
+
+// Drawn items: the buttons, then the switch that hides them and the one that swaps in the keypad.
+enum { kTouchToggle = kTouchButtons, kTouchMode, kTouchItems };
+inline TRect TouchItemRect(const TouchLayout& layout, TInt item) {
+    return item == kTouchToggle ? layout.toggle : item == kTouchMode ? layout.mode : layout.buttons[item];
+}
+inline TBool TouchItemShown(TInt item, TInt state) {
+    if (!(state & kTouchActive)) return EFalse;
+    if (item == kTouchToggle) return ETrue;
+    if (state & kTouchHidden) return EFalse;
+    return item == kTouchMode || TouchButtonShown(item, state);
+}
+inline void DrawTouchItem(CGraphicsContext& gc, const CFont& font, const TRect& bounds, TInt item, TInt state) {
+    TRect area = bounds;
+    area.Shrink(1, 1);
+    const TBool pressed = item < kTouchButtons && (state & (1 << item));
+    gc.SetPenStyle(CGraphicsContext::ENullPen);
+    gc.SetBrushColor(pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
+    gc.DrawRect(area);
+    gc.SetPenStyle(CGraphicsContext::ESolidPen);
+    gc.SetPenColor(TRgb(255, 255, 255, 240));
+    if (item == kTouchToggle) {
+        const TPoint center = bounds.Center();
+        gc.SetPenSize(TSize(2, 2));
+        gc.DrawLine(center - TPoint(6, 0), center + TPoint(7, 0));
+        if (state & kTouchHidden) gc.DrawLine(center - TPoint(0, 6), center + TPoint(0, 7));
+        gc.SetPenSize(TSize(1, 1));
+        return;
+    }
+    // The switch names the keys it brings up.
+    const TPtrC text = item != kTouchMode ? TouchLabel(item) :
+        (state & kTouchKeypadShown) ? TPtrC(_L("A")) : TPtrC(_L("1"));
+    const TInt baseline = (bounds.Height() - font.HeightInPixels()) / 2 + font.AscentInPixels();
+    gc.DrawText(text, bounds, baseline, CGraphicsContext::ECenter, 0);
+}
 }

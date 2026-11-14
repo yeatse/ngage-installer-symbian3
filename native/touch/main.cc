@@ -51,8 +51,14 @@ class Controls {
     std::unique_ptr<CWsScreenDevice> screen_;
     RWindowGroup group_;
     RTimer timer_;
-    // A single pixel that captures every touch; the posting surface draws the controls.
+    // A single pixel that captures every touch.
     std::unique_ptr<RWindow> capture_;
+    // Transparent and over the whole screen: the controls above a game shown on a compositor surface.
+    std::unique_ptr<RWindow> overlay_;
+    std::unique_ptr<CWindowGc> gc_;
+    CFont* font_ = nullptr;
+    TInt drawn_ = -1;
+    bool composited_ = false;
     RProperty state_;
     bool state_defined_ = false;
     TInt published_ = -1;
@@ -109,6 +115,39 @@ class Controls {
         if (value == published_ || !state_.Handle()) return;
         published_ = value;
         state_.Set(value);
+        Draw();
+    }
+
+    void Draw() {
+        if (!overlay_ || !gc_ || !font_ || !composited_ || !active_ || drawn_ == published_) return;
+        drawn_ = published_;
+        gc_->Activate(*overlay_);
+        overlay_->Invalidate();
+        overlay_->BeginRedraw();
+        gc_->SetDrawMode(CGraphicsContext::EDrawModeWriteAlpha);
+        gc_->SetPenStyle(CGraphicsContext::ENullPen);
+        gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
+        gc_->SetBrushColor(TRgb(0, 0, 0, 0));
+        gc_->DrawRect(TRect(TPoint(0, 0), size_));
+        gc_->SetDrawMode(CGraphicsContext::EDrawModePEN);
+        gc_->UseFont(font_);
+        const TRect bounds(TPoint(0, 0), size_);
+        for (TInt item = 0; item < Ngage::kTouchItems; ++item) {
+            const TRect area = Ngage::TouchItemRect(layout_, item);
+            TRect inside = area;
+            inside.Intersection(bounds);
+            if (Ngage::TouchItemShown(item, drawn_) && inside == area)
+                Ngage::DrawTouchItem(*gc_, *font_, area, item, drawn_);
+        }
+        gc_->DiscardFont();
+        overlay_->EndRedraw();
+        gc_->Deactivate();
+    }
+
+    void LoadFont() {
+        if (font_) screen_->ReleaseFont(font_);
+        font_ = nullptr;
+        screen_->GetNearestFontInPixels(font_, TFontSpec(_L("Nokia Sans S60"), layout_.unit / 2));
     }
 
     void ReleaseAll() {
@@ -122,6 +161,7 @@ class Controls {
 
     void Visible() {
         capture_->SetVisible(active_);
+        if (overlay_) overlay_->SetVisible(active_ && composited_);
         capture_->SetPointerCapture(active_ ? RWindowBase::TCaptureFlagEnabled | RWindowBase::TCaptureFlagAllGroups
                                             : RWindowBase::TCaptureDisabled);
         Publish();
@@ -134,6 +174,10 @@ class Controls {
         ReleaseAll();
         size_ = size;
         layout_ = Ngage::TouchLayout(size);
+        if (overlay_) overlay_->SetExtent(TPoint(0, 0), size);
+        LoadFont();
+        drawn_ = -1;
+        Draw();
     }
 
     void Press(int pointer, unsigned buttons) {
@@ -227,6 +271,15 @@ class Controls {
             }
             last_focus_ = focus;
         }
+        TInt composited = 0;
+        const TUid game = {static_cast<TInt32>(game_.SecureId().iId)};
+        if (RProperty::Get(game, Ngage::kTouchCompositorKey, composited) != KErrNone) composited = 0;
+        if ((composited != 0) != composited_) {
+            composited_ = composited != 0;
+            drawn_ = -1;
+            Visible();
+            Draw();
+        }
         if (active_) {
             Layout();
             for (int i = 0; i < kButtonCount; ++i) {
@@ -261,6 +314,17 @@ public:
         capture_->PointerFilter(EPointerFilterDrag, 0);
         capture_->SetVisible(EFalse);
         capture_->Activate();
+        overlay_ = std::make_unique<RWindow>(ws_);
+        gc_ = std::make_unique<CWindowGc>(screen_.get());
+        if (overlay_->Construct(group_, 3) != KErrNone || overlay_->SetTransparencyAlphaChannel() != KErrNone ||
+            gc_->Construct() != KErrNone) {
+            overlay_->Close();
+            overlay_.reset();
+        } else {
+            overlay_->SetBackgroundColor(TRgb(0, 0, 0, 0));
+            overlay_->SetVisible(EFalse);
+            overlay_->Activate();
+        }
         const TUid category = {static_cast<TInt32>(Ngage::kTouchServiceSid)};
         const TUint key = static_cast<TUint>(game_id.Id());
         static _LIT_SECURITY_POLICY_PASS(read_policy);
@@ -314,6 +378,9 @@ public:
             RProperty::Delete(category, static_cast<TUint>(game_.Id().Id()));
         }
         game_.Close();
+        if (font_) screen_->ReleaseFont(font_);
+        gc_.reset();
+        if (overlay_) overlay_->Close();
         if (capture_) capture_->Close();
         group_.Close();
     }

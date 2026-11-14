@@ -224,6 +224,8 @@ class Surface final : public CPostingSurface {
     TInt pitch_ = 0;
     TInt stride_ = 0;
     bool visible_ = false;
+    bool configured_ = false;
+    TSize surface_{0, 0};
 public:
     ~Surface() override {
         Destroy();
@@ -264,23 +266,29 @@ public:
         source_ = source.iSourceImageSize; pixel_ = PixelOf(source.iPostingFormat);
         buffer_.CreateL(source_, BytesOf(pixel_));
         User::LeaveIfError(SetPostingParameters(destination));
-        if (target_ && size_ != screen_->SizeInPixels()) CloseSurface();
-        if (target_) {
-            User::LeaveIfError(bitmap_.Create(size_, EColor16MU));
-        } else if (OpenSurface(screen_->SizeInPixels())) {
-            User::LeaveIfError(bitmap_.Create(size_, EColor16MU));
-        } else {
-            CloseSurface();
-            // Matches CDirectScreenAccess: the DSA buffer follows the current app orientation.
-            direct_ = CFbsScreenDevice::NewL(screen_->GetScreenNumber(), screen_->DisplayMode());
-            direct_->SetAutoUpdate(EFalse);
-            TPixelsAndRotation rotation;
-            screen_->GetDefaultScreenSizeAndRotation(rotation);
-            direct_->SetDeviceOrientation(static_cast<TDeviceOrientation>(1 << rotation.iRotation));
-            User::LeaveIfError(direct_->CreateContext(gc_));
-            User::LeaveIfError(bitmap_.Create(direct_->SizeInPixels(), EColor16MU));
-            size_ = bitmap_.SizeInPixels();
+        for (TUint i = 0; i < 256; ++i) {
+            low_[i] = 0xff000000u | Expand(pixel_, i);
+            high_[i] = Expand(pixel_, i << 8);
         }
+        if (target_ && surface_ != source_) CloseSurface();
+        if (target_ || OpenSurface(source_)) {
+            size_ = screen_->SizeInPixels();
+            if (size_.iWidth > 640 || size_.iHeight > 640) User::Leave(KErrNotSupported);
+            configured_ = false;
+            Announce(1);
+            return;
+        }
+        CloseSurface();
+        Announce(0);
+        // Matches CDirectScreenAccess: the DSA buffer follows the current app orientation.
+        direct_ = CFbsScreenDevice::NewL(screen_->GetScreenNumber(), screen_->DisplayMode());
+        direct_->SetAutoUpdate(EFalse);
+        TPixelsAndRotation rotation;
+        screen_->GetDefaultScreenSizeAndRotation(rotation);
+        direct_->SetDeviceOrientation(static_cast<TDeviceOrientation>(1 << rotation.iRotation));
+        User::LeaveIfError(direct_->CreateContext(gc_));
+        User::LeaveIfError(bitmap_.Create(direct_->SizeInPixels(), EColor16MU));
+        size_ = bitmap_.SizeInPixels();
         pitch_ = bitmap_.DataStride();
         if (size_.iWidth > 640 || size_.iHeight > 640 || (pitch_ & 3)) User::Leave(KErrNotSupported);
         bitmap_.BeginDataAccess();
@@ -288,10 +296,6 @@ public:
         const TInt count = pitch_ / 4 * size_.iHeight;
         for (TInt i = 0; i < count; ++i) pixels[i] = 0xff000000u;
         bitmap_.EndDataAccess();
-        for (TUint i = 0; i < 256; ++i) {
-            low_[i] = 0xff000000u | Expand(pixel_, i);
-            high_[i] = Expand(pixel_, i << 8);
-        }
         User::LeaveIfError(cache_.Create(size_, EColor16MU));
         overlay_ = CFbsBitmapDevice::NewL(&cache_);
         User::LeaveIfError(overlay_->CreateContext(overlay_gc_));
@@ -299,7 +303,8 @@ public:
         User::LeaveIfError(overlay_->GetNearestFontInPixels(font_, TFontSpec(_L("Nokia Sans S60"), layout.unit / 2)));
     }
     TUint8* Frame() { return reinterpret_cast<TUint8*>(bitmap_.DataAddress()); }
-    // One mapped XRGB buffer of the screen's size, shown as the background of the game's window.
+    // One mapped XRGB buffer of the source's size, shown as the background of the game's window and
+    // scaled by the compositor; the touch service draws the controls in a window over it.
     // Direct screen access owns that background while it starts, so the surface goes up with a frame.
     bool OpenSurface(TSize size) {
         if (!game_ || !game_->WsHandle()) return false;
@@ -324,15 +329,39 @@ public:
         // The driver may pad rows: the 808 gives a 360 pixel wide surface a 1472 byte stride.
         RSurfaceManager::TInfoBuf info;
         if (compositor_.Info(id_, info) != KErrNone || info().iStride < size.iWidth * 4) return false;
-        target_ = shared_.Base() + offset; size_ = size; stride_ = info().iStride;
+        target_ = shared_.Base() + offset; surface_ = size; stride_ = info().iStride;
         return true;
     }
-    bool ShowSurface() {
-        if (visible_) return true;
+    // output is where the crop of the source goes on the screen; the part on the screen is shown.
+    bool ShowSurface(const TRect& output, const TRect& crop) {
+        if (visible_ && configured_) return true;
+        TRect extent = output, view = crop;
+        extent.Intersection(TRect(TPoint(0, 0), size_));
+        if (extent.IsEmpty()) return false;
+        if (extent != output) {
+            const TInt width = output.Width(), height = output.Height();
+            view.iTl.iX = crop.iTl.iX + Divide((extent.iTl.iX - output.iTl.iX) * crop.Width(), width);
+            view.iBr.iX = crop.iTl.iX + Divide((extent.iBr.iX - output.iTl.iX) * crop.Width(), width);
+            view.iTl.iY = crop.iTl.iY + Divide((extent.iTl.iY - output.iTl.iY) * crop.Height(), height);
+            view.iBr.iY = crop.iTl.iY + Divide((extent.iBr.iY - output.iTl.iY) * crop.Height(), height);
+            if (view.IsEmpty()) return false;
+        }
         TSurfaceConfiguration configuration;
         configuration.SetSurfaceId(id_);
-        visible_ = compositor_.Show(*game_, configuration) == KErrNone;
+        configuration.SetExtent(extent);
+        configuration.SetViewport(view);
+        // The window shows its own background around the extent.
+        if (!visible_) game_->SetBackgroundColor(TRgb(0, 0, 0));
+        visible_ = configured_ = compositor_.Show(*game_, configuration) == KErrNone;
         return visible_;
+    }
+    // Tells the touch service whether to draw the controls itself. It is left set when a surface
+    // closes: a game opens its next posting surface before it deletes the last one.
+    static void Announce(TInt composited) {
+        static _LIT_SECURITY_POLICY_PASS(anyone);
+        const TUid category = {static_cast<TInt32>(RProcess().SecureId().iId)};
+        RProperty::Define(category, Ngage::kTouchCompositorKey, RProperty::EInt, anyone, anyone);
+        RProperty::Set(category, Ngage::kTouchCompositorKey, composited);
     }
     void HideSurface() {
         if (visible_) compositor_.Hide(*game_);
@@ -346,39 +375,6 @@ public:
         compositor_.Close();
         id_ = TSurfaceId::CreateNullId();
     }
-    enum { kToggle = Ngage::kTouchButtons, kMode, kItems };
-    static TRect ItemRect(const Ngage::TouchLayout& layout, TInt item) {
-        return item == kToggle ? layout.toggle : item == kMode ? layout.mode : layout.buttons[item];
-    }
-    static bool ItemShown(TInt item, TInt state) {
-        if (!(state & Ngage::kTouchActive)) return false;
-        if (item == kToggle) return true;
-        if (state & Ngage::kTouchHidden) return false;
-        return item == kMode || Ngage::TouchButtonShown(item, state);
-    }
-    void DrawItem(const TRect& bounds, TInt item, TInt state) {
-        TRect area = bounds;
-        area.Shrink(1, 1);
-        const bool pressed = item < Ngage::kTouchButtons && (state & (1 << item));
-        overlay_gc_->SetPenStyle(CGraphicsContext::ENullPen);
-        overlay_gc_->SetBrushColor(pressed ? TRgb(230, 130, 20, 180) : TRgb(24, 32, 40, 140));
-        overlay_gc_->DrawRect(area);
-        overlay_gc_->SetPenStyle(CGraphicsContext::ESolidPen);
-        overlay_gc_->SetPenColor(TRgb(255, 255, 255, 240));
-        if (item == kToggle) {
-            const TPoint center = bounds.Center();
-            overlay_gc_->SetPenSize(TSize(2, 2));
-            overlay_gc_->DrawLine(center - TPoint(6, 0), center + TPoint(7, 0));
-            if (state & Ngage::kTouchHidden) overlay_gc_->DrawLine(center - TPoint(0, 6), center + TPoint(0, 7));
-            overlay_gc_->SetPenSize(TSize(1, 1));
-            return;
-        }
-        // The switch names the keys it brings up.
-        const TPtrC text = item != kMode ? Ngage::TouchLabel(item) :
-            (state & Ngage::kTouchKeypadShown) ? TPtrC(_L("A")) : TPtrC(_L("1"));
-        const TInt baseline = (bounds.Height() - font_->HeightInPixels()) / 2 + font_->AscentInPixels();
-        overlay_gc_->DrawText(text, bounds, baseline, CGraphicsContext::ECenter, 0);
-    }
     // Controls are drawn only when the state changes, once over white and once over black: the
     // difference gives each pixel's alpha and the black pass its premultiplied colour.
     void Render(TInt state) {
@@ -389,18 +385,18 @@ public:
         const TInt pitch = cache_.DataStride();
         overlay_gc_->SetBrushStyle(CGraphicsContext::ESolidBrush);
         overlay_gc_->UseFont(font_);
-        for (TInt item = 0; item < kItems; ++item) {
-            const TRect area = ItemRect(layout, item);
+        for (TInt item = 0; item < Ngage::kTouchItems; ++item) {
+            const TRect area = Ngage::TouchItemRect(layout, item);
             TRect inside = area;
             inside.Intersection(bounds);
             const TInt width = area.Width(), height = area.Height();
-            if (!ItemShown(item, state) || inside != area || width * height > static_cast<TInt>(sizeof scratch_))
+            if (!Ngage::TouchItemShown(item, state) || inside != area || width * height > static_cast<TInt>(sizeof scratch_))
                 continue;
             for (TInt pass = 0; pass < 2; ++pass) {
                 overlay_gc_->SetPenStyle(CGraphicsContext::ENullPen);
                 overlay_gc_->SetBrushColor(pass ? TRgb(0, 0, 0) : TRgb(255, 255, 255));
                 overlay_gc_->DrawRect(area);
-                DrawItem(area, item, state);
+                Ngage::DrawTouchItem(*overlay_gc_, *font_, area, item, state);
                 cache_.BeginDataAccess();
                 auto* first = reinterpret_cast<TUint8*>(cache_.DataAddress()) + area.iTl.iY * pitch;
                 TUint8* white = scratch_;
@@ -442,10 +438,10 @@ public:
         const TRect bounds(TPoint(0, 0), cache_.SizeInPixels());
         const auto* cache = reinterpret_cast<const TUint8*>(cache_.DataAddress());
         const TInt pitch = cache_.DataStride();
-        for (TInt item = 0; item < kItems; ++item) {
+        for (TInt item = 0; item < Ngage::kTouchItems; ++item) {
             const bool shown = shown_ & (1u << item);
             if (!shown && !changed) continue;
-            const TRect area = ItemRect(layout, item);
+            const TRect area = Ngage::TouchItemRect(layout, item);
             TRect clipped = area;
             clipped.Intersection(bounds);
             if (clipped != area || area.IsEmpty()) continue;
@@ -498,9 +494,9 @@ public:
         if (!buffer || buffer->GetSize() != source_ || !buffer->GetBuffer()) return KErrArgument;
         if (!target_ && (!direct_ || !gc_)) return KErrNotReady;
 
-        auto* frame = Frame();
-        const TSize size = size_;
-        const TInt pitch = pitch_;
+        auto* frame = target_ ? target_ : Frame();
+        const TSize size = target_ ? source_ : size_;
+        const TInt pitch = target_ ? stride_ : pitch_;
         if (!frame || size.iWidth <= 0 || size.iHeight <= 0) return KErrNotReady;
         if (reinterpret_cast<TUint>(frame) & 3) return KErrNotSupported;
         TRect output = destination_.iDisplayedRect;
@@ -512,6 +508,8 @@ public:
         if (crop.IsEmpty()) crop = TRect(TPoint(0, 0), source_);
         crop.Intersection(TRect(TPoint(0, 0), source_));
         if (crop.IsEmpty()) return KErrArgument;
+        const TRect shown = output, viewport = crop;
+        if (target_) output = crop = TRect(TPoint(0, 0), source_);
         TRect area = output; area.Intersection(TRect(TPoint(0, 0), size));
         const auto* input = static_cast<const TUint8*>(buffer->GetBuffer());
         const TInt in_bytes = BytesOf(pixel_);
@@ -526,7 +524,7 @@ public:
         }
         const bool words = in_bytes == 4 && !(reinterpret_cast<TUint>(input) & 3) && !(in_stride & 3);
         const TInt left = area.iTl.iX, right = area.iBr.iX;
-        bitmap_.BeginDataAccess();
+        if (!target_) bitmap_.BeginDataAccess();
         const TUint32* previous = nullptr;
         for (TInt y = area.iTl.iY; y < area.iBr.iY; ++y) {
             auto* row = reinterpret_cast<TUint32*>(frame + y * pitch);
@@ -552,15 +550,12 @@ public:
                 }
             }
         }
-        Blend(frame, pitch, area);
-        bitmap_.EndDataAccess();
         if (target_) {
-            if (!ShowSurface()) return KErrNone;
-            const TInt bytes = size.iWidth * 4;
-            for (TInt y = 0; y < size.iHeight; ++y) Mem::Copy(target_ + y * stride_, frame + y * pitch, bytes);
-            compositor_.Submit(id_);
+            if (ShowSurface(shown, viewport)) compositor_.Submit(id_);
             return KErrNone;
         }
+        Blend(frame, pitch, area);
+        bitmap_.EndDataAccess();
         RRegion update;
         update.AddRect(TRect(TPoint(0, 0), size));
         if (clip_set_) update.Intersect(clip_);
@@ -575,7 +570,7 @@ public:
     }
     TInt SetPostingParameters(const TPostingParams& params) override {
         if (params.iMirror || params.iRotation != ENoRotation) return KErrNotSupported;
-        destination_ = params; mapped_ = false; return KErrNone;
+        destination_ = params; mapped_ = configured_ = false; return KErrNone;
     }
     void Release() {
         if (font_) overlay_->ReleaseFont(font_);

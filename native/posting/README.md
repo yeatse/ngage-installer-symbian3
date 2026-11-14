@@ -20,23 +20,36 @@ called again on the same surface.
 
 Hooked has passed emulator gameplay checks and user validation on Nokia 808 Belle FP2.
 
-Presentation converts frames into a software RGB picture. Where the phone has
-the Symbian^3 surface manager, the finished picture, touch controls included,
-is copied into a mapped XRGB compositor surface that is the background surface
-of the game's own window, and each frame is handed over with
-`RSurfaceUpdateSession::SubmitUpdate`. The window comes from
-`ngibackbuffer.dll`: the installer patches its two `NewPostingSurfaceL` calls to
-pass the address of the `RWindow` it already holds for direct screen access in
-place of display 0. Nothing covers the game's window, so its visibility and DSA
-region stay as the game expects. The surface is kept when the game initialises
-a new source. The window server implements direct screen access as a background
+Where the phone has the Symbian^3 surface manager, each frame is converted to
+XRGB at the source's own size in a mapped compositor surface that is the
+background surface of the game's own window, and handed over with
+`RSurfaceUpdateSession::SubmitUpdate`. The surface configuration's extent and
+viewport carry the posting rectangles, so the compositor does the scaling; the
+window's background colour is set to black for the area around the extent. The
+window comes from `ngibackbuffer.dll`: the installer patches its two
+`NewPostingSurfaceL` calls to pass the address of the `RWindow` it already
+holds for direct screen access in place of display 0.
+
+The touch controls are not part of that picture. The window server gives
+per-pixel alpha only to the UI layer, not to a window's background surface, so a
+second surface cannot be blended over the game. The posting surface sets a
+property of the game's SID (`kTouchCompositorKey`) and the touch service then
+draws the controls in a transparent window of its own over the screen, which
+the compositor blends over the game surface. That window covers the game's
+window, so the game's DSA region is empty while it is up; the game does not
+draw through it on this path.
+
+The surface is kept when the game initialises the same source size again; it is
+remade for a new source. The window server implements direct screen access as a background
 surface of the same window, and on the 808 `CDirectScreenAccess::StartL` fails
 while another surface is there; `ngibackbuffer.dll` then passes a null region to
 `SetClipRegion`. So the surface is set with the first frame after each
 initialisation, when the game's DSA is running, and removed in `Destroy`, which
-the game calls when its DSA is aborted. Bounce runs this way on an 808.
+the game calls when its DSA is aborted. Compositor scaling and the control
+window are validated on the X7 in EKA2L1 only.
 
-If no window was passed or any surface call fails, the picture is blitted into the window server's DSA
+If no window was passed or any surface call fails, frames are scaled in software
+into a picture of the screen's size, the controls are blended into it, and it is blitted into the window server's DSA
 buffer through `CFbsScreenDevice`, as `CDirectScreenAccess` does. The window
 server shows that buffer only inside the game's running DSA region, and the
 region passed to `SetClipRegion` further clips each frame. No emulator-specific
