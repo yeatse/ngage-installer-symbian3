@@ -222,6 +222,8 @@ class Surface final : public CPostingSurface {
     TUint8* target_ = nullptr;
     TSize size_{0, 0};
     TInt pitch_ = 0;
+    TInt stride_ = 0;
+    bool visible_ = false;
 public:
     ~Surface() override {
         Destroy();
@@ -262,8 +264,12 @@ public:
         source_ = source.iSourceImageSize; pixel_ = PixelOf(source.iPostingFormat);
         buffer_.CreateL(source_, BytesOf(pixel_));
         User::LeaveIfError(SetPostingParameters(destination));
-        if (target_ && size_ != screen_->SizeInPixels()) { compositor_.Hide(*game_); CloseSurface(); }
-        if (!target_ && !OpenSurface(screen_->SizeInPixels())) {
+        if (target_ && size_ != screen_->SizeInPixels()) CloseSurface();
+        if (target_) {
+            User::LeaveIfError(bitmap_.Create(size_, EColor16MU));
+        } else if (OpenSurface(screen_->SizeInPixels())) {
+            User::LeaveIfError(bitmap_.Create(size_, EColor16MU));
+        } else {
             CloseSurface();
             // Matches CDirectScreenAccess: the DSA buffer follows the current app orientation.
             direct_ = CFbsScreenDevice::NewL(screen_->GetScreenNumber(), screen_->DisplayMode());
@@ -273,8 +279,9 @@ public:
             direct_->SetDeviceOrientation(static_cast<TDeviceOrientation>(1 << rotation.iRotation));
             User::LeaveIfError(direct_->CreateContext(gc_));
             User::LeaveIfError(bitmap_.Create(direct_->SizeInPixels(), EColor16MU));
-            size_ = bitmap_.SizeInPixels(); pitch_ = bitmap_.DataStride();
+            size_ = bitmap_.SizeInPixels();
         }
+        pitch_ = bitmap_.DataStride();
         if (size_.iWidth > 640 || size_.iHeight > 640 || (pitch_ & 3)) User::Leave(KErrNotSupported);
         bitmap_.BeginDataAccess();
         auto* pixels = reinterpret_cast<TUint32*>(Frame());
@@ -291,8 +298,9 @@ public:
         const Ngage::TouchLayout layout(size_);
         User::LeaveIfError(overlay_->GetNearestFontInPixels(font_, TFontSpec(_L("Nokia Sans S60"), layout.unit / 2)));
     }
-    TUint8* Frame() { return target_ ? target_ : reinterpret_cast<TUint8*>(bitmap_.DataAddress()); }
+    TUint8* Frame() { return reinterpret_cast<TUint8*>(bitmap_.DataAddress()); }
     // One mapped XRGB buffer of the screen's size, shown as the background of the game's window.
+    // Direct screen access owns that background while it starts, so the surface goes up with a frame.
     bool OpenSurface(TSize size) {
         if (!game_ || !game_->WsHandle()) return false;
         if (!compositor_.Open()) return false;
@@ -313,16 +321,25 @@ public:
         TInt offset = 0;
         if (compositor_.Create(package, id_) != KErrNone) { id_ = TSurfaceId::CreateNullId(); return false; }
         if (compositor_.Map(id_, shared_) != KErrNone || compositor_.Offset(id_, offset) != KErrNone) return false;
-        TSurfaceConfiguration configuration;
-        configuration.SetSurfaceId(id_);
         // The driver may pad rows: the 808 gives a 360 pixel wide surface a 1472 byte stride.
         RSurfaceManager::TInfoBuf info;
         if (compositor_.Info(id_, info) != KErrNone || info().iStride < size.iWidth * 4) return false;
-        if (compositor_.Show(*game_, configuration) != KErrNone) return false;
-        target_ = shared_.Base() + offset; size_ = size; pitch_ = info().iStride;
+        target_ = shared_.Base() + offset; size_ = size; stride_ = info().iStride;
         return true;
     }
+    bool ShowSurface() {
+        if (visible_) return true;
+        TSurfaceConfiguration configuration;
+        configuration.SetSurfaceId(id_);
+        visible_ = compositor_.Show(*game_, configuration) == KErrNone;
+        return visible_;
+    }
+    void HideSurface() {
+        if (visible_) compositor_.Hide(*game_);
+        visible_ = false;
+    }
     void CloseSurface() {
+        HideSurface();
         target_ = nullptr;
         shared_.Close();
         if (!id_.IsNull()) compositor_.Destroy(id_);
@@ -455,7 +472,7 @@ public:
     void Destroy(TRequestStatus& status) override {
         Destroy(); TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
     }
-    void Destroy() override { Release(); }
+    void Destroy() override { HideSurface(); Release(); }
     TInt WaitForNextBuffer(TRequestStatus& status) override {
         status = KRequestPending;
         TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
@@ -537,7 +554,13 @@ public:
         }
         Blend(frame, pitch, area);
         bitmap_.EndDataAccess();
-        if (target_) { compositor_.Submit(id_); return KErrNone; }
+        if (target_) {
+            if (!ShowSurface()) return KErrNone;
+            const TInt bytes = size.iWidth * 4;
+            for (TInt y = 0; y < size.iHeight; ++y) Mem::Copy(target_ + y * stride_, frame + y * pitch, bytes);
+            compositor_.Submit(id_);
+            return KErrNone;
+        }
         RRegion update;
         update.AddRect(TRect(TPoint(0, 0), size));
         if (clip_set_) update.Intersect(clip_);
@@ -564,6 +587,9 @@ public:
     }
     void ReleaseDirect() { CloseSurface(); compositor_.Unload(); delete gc_; gc_ = nullptr; delete direct_; direct_ = nullptr; }
     TInt SetClipRegion(const TRegion& region) override {
+        // ngibackbuffer.dll passes the region of a direct screen access that failed to start.
+        const TRegion* volatile given = &region;
+        if (!given) { clip_set_ = false; return KErrNone; }
         clip_.Copy(region);
         clip_set_ = true;
         return clip_.CheckError() ? KErrNoMemory : KErrNone;

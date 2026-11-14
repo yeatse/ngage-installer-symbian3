@@ -21,15 +21,20 @@ called again on the same surface.
 Hooked has passed emulator gameplay checks and user validation on Nokia 808 Belle FP2.
 
 Presentation converts frames into a software RGB picture. Where the phone has
-the Symbian^3 surface manager, the picture is written straight into a mapped
-XRGB compositor surface that is the background surface of the game's own
-window, and each frame is handed over with
+the Symbian^3 surface manager, the finished picture, touch controls included,
+is copied into a mapped XRGB compositor surface that is the background surface
+of the game's own window, and each frame is handed over with
 `RSurfaceUpdateSession::SubmitUpdate`. The window comes from
 `ngibackbuffer.dll`: the installer patches its two `NewPostingSurfaceL` calls to
 pass the address of the `RWindow` it already holds for direct screen access in
 place of display 0. Nothing covers the game's window, so its visibility and DSA
 region stay as the game expects. The surface is kept when the game initialises
-a new source. This path is experimental and not yet validated on a phone.
+a new source. The window server implements direct screen access as a background
+surface of the same window, and on the 808 `CDirectScreenAccess::StartL` fails
+while another surface is there; `ngibackbuffer.dll` then passes a null region to
+`SetClipRegion`. So the surface is set with the first frame after each
+initialisation, when the game's DSA is running, and removed in `Destroy`, which
+the game calls when its DSA is aborted. Bounce runs this way on an 808.
 
 If no window was passed or any surface call fails, the picture is blitted into the window server's DSA
 buffer through `CFbsScreenDevice`, as `CDirectScreenAccess` does. The window
