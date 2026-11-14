@@ -46,7 +46,7 @@ while another surface is there; `ngibackbuffer.dll` then passes a null region to
 `SetClipRegion`. So the surface is set with the first frame after each
 initialisation, when the game's DSA is running, and removed in `Destroy`, which
 the game calls when its DSA is aborted. Compositor scaling and the control
-window are validated on the X7 in EKA2L1 only.
+window are validated on the X7 in EKA2L1 and on a Nokia 808.
 
 If no window was passed or any surface call fails, frames are scaled in software
 into a picture of the screen's size, the controls are blended into it, and it is blitted into the window server's DSA
