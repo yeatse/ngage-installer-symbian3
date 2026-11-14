@@ -6,6 +6,11 @@ from sis import Field, Package, array, fields, sequence
 from merge_packages import replace_block
 
 
+# The phone skips an embedded package whose version is already installed, so every change to a
+# component needs a higher build number than the last one that reached a phone.
+REVISION = 2001
+
+
 def single_file(template, raw, *, package_uid, name, target, run_after_install=False):
     return package_files(template, [(target, raw)], package_uid=package_uid, name=name,
                          run_after_install=run_after_install)
@@ -17,6 +22,7 @@ def package_files(template, files, *, package_uid, name, run_after_install=False
     info = fields(parts[info_index].payload[:-2])
     info[0] = Field(9, struct.pack('<I', package_uid))
     info[2] = array(1, [Field(1, name.encode('utf-16le'))])
+    info[4] = Field(4, info[4].payload[:8] + struct.pack('<I', REVISION))
     parts[info_index] = Field(14, sequence(info) + parts[info_index].payload[-2:])
     header = struct.pack('<III', 0x10201a7a, 0, package_uid)
     crc = (binascii.crc_hqx(header[1:12:2], 0) << 16) | binascii.crc_hqx(header[:12:2], 0)

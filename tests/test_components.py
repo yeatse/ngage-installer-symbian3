@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from component_identity import header_crc, patch_image
 from adapt_client import target_component, SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID
 from merge_packages import merge_files
-from native_package import package_files, single_file
+from native_package import REVISION, package_files, single_file
 from sis import Field, Package, array, array_items, fields, sequence
 
 
@@ -21,11 +21,14 @@ def package(uid):
                    Field(30, array(31, [Field(31, array(32, []).encode())]).encode()))
 
 
+INFO = Field(14, sequence([Field(9, struct.pack('<I', 1)), Field(1, b''), array(1, [Field(1, b'')]),
+                          array(1, [Field(1, b'')]), Field(4, struct.pack('<III', 1, 30, 1554))]) + bytes(2))
+
+
 class ComponentTests(unittest.TestCase):
     def test_background_service_has_only_an_executable_without_install_autostart(self):
         base = package(1)
-        info = Field(14, sequence([Field(9, struct.pack('<I', 1)), Field(1, b''),
-                                  array(1, [Field(1, b'')])]) + bytes(2))
+        info = INFO
         template = Package(base.uid_header, Field(13, info.encode() + base.controller.payload), base.data)
         result = single_file(template, self.image(), package_uid=0xe0000961,
                              name='Background service', target=r'C:\sys\bin\ngage_touch.exe')
@@ -37,12 +40,13 @@ class ComponentTests(unittest.TestCase):
                          r'C:\sys\bin\ngage_touch.exe')
         self.assertEqual(struct.unpack_from('<II', description.payload, len(description.payload)-28),
                          (1, 0))
+        version = fields(next(f for f in fields(result.controller.payload) if f.kind == 14).payload[:-2])[4]
+        self.assertEqual(struct.unpack('<III', version.payload), (1, 30, REVISION))
         self.assertEqual(Package.parse(result.encode()), result)
 
     def test_multi_file_component_indexes_each_file_in_its_data_unit(self):
         base = package(1)
-        info = Field(14, sequence([Field(9, struct.pack('<I', 1)), Field(1, b''),
-                                  array(1, [Field(1, b'')])]) + bytes(2))
+        info = INFO
         template = Package(base.uid_header, Field(13, info.encode() + base.controller.payload), base.data)
         files = [(r'C:\sys\bin\ngdatrecognizer.dll', self.image()),
                  (r'C:\resource\plugins\ngdatrecognizer.rsc', b'resource')]
@@ -73,8 +77,7 @@ class ComponentTests(unittest.TestCase):
 
     def test_component_files_join_the_parent_package(self):
         base = package(1)
-        info = Field(14, sequence([Field(9, struct.pack('<I', 1)), Field(1, b''),
-                                  array(1, [Field(1, b'')])]) + bytes(2))
+        info = INFO
         template = Package(base.uid_header, Field(13, info.encode() + base.controller.payload), base.data)
         parent = package_files(template, [(r'C:\parent.txt', b'parent')], package_uid=1, name='Parent')
         first = single_file(template, b'first', package_uid=2, name='First', target=r'C:\first.txt')
