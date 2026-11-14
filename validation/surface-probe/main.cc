@@ -119,13 +119,19 @@ void ProbeSurface(Log &log, RWindow &window, TSize size) {
     TSurfaceConfiguration configuration;
     configuration.SetSurfaceId(id);
     LOG_LINE(log, _L8("surface: configuration size=%d"), configuration.Size());
-    r = window.SetBackgroundSurface(configuration, ETrue);
+    // Called by ordinal: the 808's loader refuses an image that imports ws32 ordinal 598.
+    RLibrary ws32;
+    r = ws32.Load(_L("ws32.dll"));
+    LOG_LINE(log, _L8("surface: load ws32 r=%d"), r);
+    if (r != KErrNone) return;
+    r = Call<TInt, const TSurfaceConfiguration *, TInt>(ws32, &window, 598, &configuration, ETrue);
     LOG_LINE(log, _L8("surface: set background r=%d"), r);
     if (r != KErrNone) return;
     r = Call<TInt, TInt, const TSurfaceId *, TInt, const TRegion *>(update, session, 1, KAllScreens, &id, 0, nullptr);
     LOG_LINE(log, _L8("surface: submit r=%d"), r);
     User::After(4000000);
-    window.RemoveBackgroundSurface(ETrue);
+    Call<void, TInt>(ws32, &window, 600, ETrue);
+    ws32.Close();
     LOG_LINE(log, _L8("surface: removed"));
     Call<void>(update, session, 6);
     chunk.Close();
@@ -284,7 +290,7 @@ TInt Run() {
     TTime now;
     now.HomeTime();
     TDateTime t = now.DateTime();
-    LOG_LINE(log, _L8("surface-probe 2 %04d-%02d-%02d %02d:%02d:%02d"), t.Year(), t.Month() + 1, t.Day() + 1,
+    LOG_LINE(log, _L8("surface-probe 3 %04d-%02d-%02d %02d:%02d:%02d"), t.Year(), t.Month() + 1, t.Day() + 1,
              t.Hour(), t.Minute(), t.Second());
     // Each stage has its own thread: a leave or panic ends only that stage and its exit reason is logged.
     for (TInt index = 0; index < kStages; ++index) {
