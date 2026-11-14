@@ -322,6 +322,9 @@ public:
             overlay_.reset();
         } else {
             overlay_->SetBackgroundColor(TRgb(0, 0, 0, 0));
+            // Touches over this window follow its settings even while the other window captures.
+            overlay_->EnableAdvancedPointers();
+            overlay_->PointerFilter(EPointerFilterDrag, 0);
             overlay_->SetVisible(EFalse);
             overlay_->Activate();
         }
