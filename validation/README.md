@@ -346,3 +346,26 @@ did not fix it. It only changed which call failed. The package and the game are
 unchanged; the README tells users to turn Open4All off for this game. EKA2L1
 lets processes without AllFiles open `\private`, so this check never fails in
 the emulator.
+
+## Nokia E6 640×480 presentation
+
+An E6 user reported a cut-off picture. On the E6-00 Symbian Anna ROM in Linux
+EKA2L1 (`claude/new-session-q51wnb`, b9743e1, isolated drives), Hooked drew
+480×360 in the top 360 lines of the 640×480 screen. The posting DLL now
+fits the input crop to the actual screen: Hooked's language and save-slot
+screens fill 640×480, and Tetris' menu is 360×480 from x=140. On the X7 ROM
+Hooked is unchanged at 480×360 from x=80 and reaches name entry. All 40 host
+checks pass.
+
+The Games UI itself still uses the nHD 640×360 layout on the E6:
+`ngiplaycommon.dll` has layout classes only for QVGA and nHD portrait and
+landscape and VGA portrait. Its resolution setting (key 0xA of repository
+20008bb7) defines VGA landscape (32) but has no layout for it.
+
+The emulator E6 profile needs the Belle installation service as
+`C:\sys\bin\installserver.exe`, the counterpart of the phone's Install
+Server patch, to install games inside Games. On that profile both Hooked and
+Tetris end with KERN-EXEC 3 when their first text-input screen opens, also
+with the unchanged 1554 package: `ngitextinput.dll` calls through a null
+text-input mode object (offset 0x54 of the object called at 0xfab2). The X7
+does not reach this path. It is not yet known whether a physical E6 is affected.

@@ -49,7 +49,15 @@ components use existing ROM interfaces.
 
 Portrait games keep the phone in landscape. Only the picture is portrait,
 unrotated, scaled to the full screen height and centred; for example, 240×320
-is shown at 270×360 from x=185 on a 640×360 screen. The installer rewrites the
+is shown at 270×360 from x=185 on a 640×360 screen.
+
+The N97 configuration places every picture for its 640×360 screen, so on the
+Nokia E6's 640×480 screen games were drawn in the top 360 lines at the
+640×360 size. The posting DLL therefore ignores the configured placement and
+shows the input crop as large as the actual screen allows at its own aspect
+ratio, centred: 320×240 landscape games such as Hooked fill 640×480, and
+240×320 portrait games such as Tetris are 360×480 from x=140. On 640×360
+screens this gives the same placement as before. The installer rewrites the
 N97 display configuration selected on Symbian^3. That configuration enables the
 portrait option and scales portrait backbuffers to the screen height. It also reports the native
 display as 240×320, matching its portrait orientation at angle 0; games such as

@@ -72,6 +72,17 @@ TUint Divide(TUint numerator, TUint denominator) {
     return result;
 }
 
+// The largest rectangle of the picture's aspect ratio that fits the screen, centred.
+TRect Fit(const TSize& picture, const TSize& screen) {
+    TSize size = screen;
+    if (picture.iWidth * screen.iHeight < picture.iHeight * screen.iWidth)
+        size.iWidth = Divide(picture.iWidth * screen.iHeight + picture.iHeight / 2, picture.iHeight);
+    else
+        size.iHeight = Divide(picture.iHeight * screen.iWidth + picture.iWidth / 2, picture.iWidth);
+    const TPoint origin((screen.iWidth - size.iWidth) / 2, (screen.iHeight - size.iHeight) / 2);
+    return TRect(origin, size);
+}
+
 enum class Pixel { kInvalid, k444, k555, k565, k888, kx888 };
 
 // The patched NGI backbuffer passes formats without a posting equivalent as the
@@ -499,15 +510,14 @@ public:
         const TInt pitch = target_ ? stride_ : pitch_;
         if (!frame || size.iWidth <= 0 || size.iHeight <= 0) return KErrNotReady;
         if (reinterpret_cast<TUint>(frame) & 3) return KErrNotSupported;
-        TRect output = destination_.iDisplayedRect;
-        if (output.IsEmpty()) return KErrNone;
-        if (!destination_.iScaleToRect.IsEmpty()) {
-            TRect scale = destination_.iScaleToRect; scale.Move(output.iTl); output = scale;
-        }
+        if (destination_.iDisplayedRect.IsEmpty()) return KErrNone;
         TRect crop = destination_.iInputCrop;
         if (crop.IsEmpty()) crop = TRect(TPoint(0, 0), source_);
         crop.Intersection(TRect(TPoint(0, 0), source_));
         if (crop.IsEmpty()) return KErrArgument;
+        // NGI places the picture for the 640x360 screen of the N97 configuration; other screens, such
+        // as the E6's 640x480, get it as large as fits and centred.
+        TRect output = Fit(crop.Size(), size_);
         const TRect shown = output, viewport = crop;
         if (target_) output = crop = TRect(TPoint(0, 0), source_);
         TRect area = output; area.Intersection(TRect(TPoint(0, 0), size));

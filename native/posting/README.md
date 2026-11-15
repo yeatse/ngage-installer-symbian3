@@ -23,10 +23,13 @@ Hooked has passed emulator gameplay checks and user validation on Nokia 808 Bell
 Where the phone has the Symbian^3 surface manager, each frame is converted to
 XRGB at the source's own size in a mapped compositor surface that is the
 background surface of the game's own window, and handed over with
-`RSurfaceUpdateSession::SubmitUpdate`. The surface configuration's extent and
-viewport carry the posting rectangles, so the compositor does the scaling; the
-window's background colour is set to black for the area around the extent. The
-window comes from `ngibackbuffer.dll`: the installer patches its two
+`RSurfaceUpdateSession::SubmitUpdate`. The surface configuration's viewport is
+the posting input crop and its extent the largest centred rectangle of the
+crop's aspect ratio on the screen, so the compositor does the scaling; the
+destination rectangles NGI computes for the N97's 640×360 screen are not used,
+which lets the picture fill other screens such as the E6's 640×480. The
+window's background colour is set to black for the area around the extent.
+The window comes from `ngibackbuffer.dll`: the installer patches its two
 `NewPostingSurfaceL` calls to pass the address of the `RWindow` it already
 holds for direct screen access in place of display 0.
 
