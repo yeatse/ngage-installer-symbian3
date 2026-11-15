@@ -8,7 +8,7 @@ from merge_packages import replace_block
 
 # The phone skips an embedded package whose version is already installed, so every change to a
 # component needs a higher build number than the last one that reached a phone.
-REVISION = 2107
+REVISION = 2108
 
 
 def single_file(template, raw, *, package_uid, name, target, run_after_install=False):

@@ -5,6 +5,7 @@ import subprocess
 
 from audio_compat import bytepair_image, replace_images
 from component_identity import header_crc
+from input_compat import remap_keyboard
 
 # The N97 variant is the one the adapted touch-profile condition selects on Symbian^3.
 CONFIG_SHA256 = '8a2cdba6e60bad0f8b61148550de84e1b2df4659dbb627608a61856271c658e1'
@@ -190,6 +191,7 @@ def patch_config(raw):
     options = config[ORIENTATIONS]
     options['useroptions'][3] = USER_OPTIONS
     entries = add_portrait_configurations(entries, config)
+    remap_keyboard(config)
     scaled = 0
     for path, values in config.items():
         if not path.startswith(BACKBUFFERS) or values['orientationtype'][3] != PORTRAIT:

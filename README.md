@@ -32,6 +32,9 @@ the phone.
 - The button at the lower left switches the right side between A/B and a number keypad
   with a C key, for games that use number keys or need text entered.
 - The phone's volume keys change the game volume.
+- On phones with a keyboard (E6, E7): Q or Enter is A, A or Backspace is B,
+  W E R / S D F / X C V are 1 to 9, Z is 0, J is * and H is #. The arrow keys work
+  as the pad.
 
 ## More
 

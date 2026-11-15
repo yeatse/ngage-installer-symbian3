@@ -24,9 +24,10 @@ constexpr std::array<Binding, 22> kBindings{{
     {EStdKeyEnter, EKeyEnter}, {EStdKeyBackspace, EKeyBackspace},
     {EStdKeyDevice0, EKeyDevice0},
     {EStdKeyDevice1, EKeyDevice1},
-    // The N97 profile takes keypad keys from its QWERTY keyboard: Q to P are 1 to 0, J is * and H is #.
-    {'Q', 'q'}, {'W', 'w'}, {'E', 'e'}, {'R', 'r'}, {'T', 't'}, {'Y', 'y'},
-    {'U', 'u'}, {'I', 'i'}, {'O', 'o'}, {'J', 'j'}, {'P', 'p'}, {'H', 'h'},
+    // The installer's key translation takes the keypad from the QWERTY keyboard: W E R, S D F and X C V are
+    // 1 to 9, Z is 0, J is * and H is #.
+    {'W', 'w'}, {'E', 'e'}, {'R', 'r'}, {'S', 's'}, {'D', 'd'}, {'F', 'f'},
+    {'X', 'x'}, {'C', 'c'}, {'V', 'v'}, {'J', 'j'}, {'Z', 'z'}, {'H', 'h'},
     // The profile has no clear key; the input library's lookup takes F1 for it.
     {EStdKeyF1, EKeyF1}
 }};

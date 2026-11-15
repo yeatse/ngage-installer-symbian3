@@ -364,8 +364,36 @@ landscape and VGA portrait. Its resolution setting (key 0xA of repository
 
 The emulator E6 profile needs the Belle installation service as
 `C:\sys\bin\installserver.exe`, the counterpart of the phone's Install
-Server patch, to install games inside Games. On that profile both Hooked and
-Tetris end with KERN-EXEC 3 when their first text-input screen opens, also
-with the unchanged 1554 package: `ngitextinput.dll` calls through a null
-text-input mode object (offset 0x54 of the object called at 0xfab2). The X7
-does not reach this path. It is not yet known whether a physical E6 is affected.
+Server patch, to install games inside Games.
+
+### Text input on the E6 profile
+
+On that profile both Hooked and Tetris ended with KERN-EXEC 3 when their first
+text-input screen opened, with the 1554 package as well. `ngitextinput.dll`
+maps NGI's default text mode to PtiEngine's QWERTY mode when Avkon's
+`KAknQwertyInputModeActive` property (0x101F876E key 4) is set and to ITU-T
+multitap otherwise. The E6 ROM has only its own QWERTY key mappings
+(`ptikeymappings_rm609_20`), so the multitap request failed, `SetInputMode`
+returned an error the game ignores, and the input mediator's current mode stayed
+null. On a phone AknCapServer publishes the property from the Avkon repository's
+keyboard layout (key 0xB, 3 = QWERTY 4x10 on the E6); EKA2L1 replaces
+AknCapServer and published nothing. This was an emulator fault: yeatse/EKA2L1
+`76927ab` (branch `claude/keen-bardeen-g9za5a`) publishes both keys. With it,
+Tetris on the E6 reaches its tutorial and Hooked's name entry takes input; the
+X7 repository holds 0 and is unaffected. The package is unchanged for this.
+
+## QWERTY game keys — E6 and E7
+
+An E7 tester asked for keyboard keys suited to its layout. The installer now
+rewrites the N97 profile's game-key translation: W E R / S D F / X C V are 1 to
+9, Z is 0, Q and A are the primary and secondary action keys next to Enter and
+Backspace, and J and H stay * and #. The touch keypad sends the same keys. On
+the E6 profile, a breakpoint on `ngiinput.dll`'s standard lookup dumped the
+table loaded in Tetris: 23 rows with exactly these entries, and the arrows,
+select key and softkey scans unchanged. All 41 host checks pass.
+
+EKA2L1 keeps a persisted copy of each repository and preferred it over the
+upgraded `20001079.cre`, so the old table stayed in use until the copy under
+`C:\private\10202be9\persists` was deleted. On a phone Central Repository
+merges an upgraded repository on installation and takes the new value of every
+setting no client has changed. The phone upgrade path is not yet tested.

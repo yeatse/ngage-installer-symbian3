@@ -126,10 +126,18 @@ A and B send Enter and Backspace, the primary and secondary action keys of
 the N97 NGI input profile that Symbian^3 selects. That profile has no keypad
 digits, so phone-keypad keys such as 5 and 7 reach the game unmapped.
 
+The N97 profile takes the phone keypad from its QWERTY keyboard, as Q to P for
+1 to 0, J for * and H for #. On an E6 or E7 that row is awkward to play on, so
+the installer rewrites the profile's key translation (both orientations): W E
+R, S D F and X C V are 1 to 9 in three rows, Z is 0, and Q and A join Enter and
+Backspace as the primary and secondary action keys. J and H stay * and #, and T
+to P no longer translate. Only the game-key table changes; the internal table
+that text input reads keeps every letter.
+
 A switch at the lower left replaces A and B with a phone keypad (1-9, *, 0, #
-and a clear key) and back; the pad, L and R stay in both layouts. The N97
-profile takes the keypad from its QWERTY keyboard, so the keypad sends Q to P
-for 1 to 0, J for * and H for #. The profile has no clear key, which multi-tap
+and a clear key) and back; the pad, L and R stay in both layouts. The keypad
+sends the keyboard keys of that translation: W to V for 1 to 9, Z for 0, J for *
+and H for #. The profile has no clear key, which multi-tap
 text entry such as naming a Sim in The Sims 2 Pets needs for deleting; the
 keypad's C sends F1, and the input adapter below maps it to the logical clear
 key 0x4000 of keypad phones.
