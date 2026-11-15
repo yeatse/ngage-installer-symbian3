@@ -19,7 +19,6 @@ from orientation_compat import (BACKBUFFER_SHA256, CONFIG_SHA256, DIMENSION_SWAP
                                 ORIENTATION_IMPORTS, ORIENTATION_SHA256, ORIENTATION_STUB,
                                 adapt_orientation, build_cre, compile_orientation, parse_cre,
                                 patch_code, patch_config, patch_stub, sections)
-from input_compat import KEYBOARD_ORIENTATIONS, parse_key_table
 from sis import Package, array_items, decompress, fields
 
 
@@ -76,27 +75,6 @@ class OrientationCompatibilityTests(unittest.TestCase):
             if path.startswith('/hardware/graphics/backbuffer/configurations/') \
                     and values['orientationtype'][3] == 1:
                 self.assertEqual(values, original[path])
-
-    def test_qwerty_keyboard_drives_the_keypad_and_action_keys(self):
-        original = sections(parse_cre(self.raw[CONFIG_SHA256])[1])
-        patched = sections(parse_cre(patch_config(self.raw[CONFIG_SHA256]))[1])
-        digits = {key: 1 << digit for digit, key in enumerate(b'WERSDFXCVZ')}
-        for path in KEYBOARD_ORIENTATIONS:
-            before = parse_key_table(original[path]['keytranslationdata'][3])
-            after = parse_key_table(patched[path]['keytranslationdata'][3])
-            self.assertEqual(patched[path]['keytranslationrows'][3], len(after))
-            self.assertEqual({scan: after[scan] for scan in digits}, digits)
-            self.assertEqual((after[ord('J')], after[ord('H')]), (0x400, 0x800))
-            self.assertEqual((after[ord('Q')], after[0x03]), (0x01000000, 0x01000000))
-            self.assertEqual((after[ord('A')], after[0x01]), (0x02000000, 0x02000000))
-            for key in b'TYUIOP':
-                self.assertNotIn(key, after)
-            letters = set(range(ord('A'), ord('Z') + 1))
-            self.assertEqual({scan: bits for scan, bits in after.items() if scan not in letters},
-                             {scan: bits for scan, bits in before.items() if scan not in letters})
-            for name, value in original[path].items():
-                if name.isidentifier() and name not in ('keytranslationdata', 'keytranslationrows'):
-                    self.assertEqual(patched[path][name], value)
 
     def test_only_the_pinned_instructions_change(self):
         sha = BACKBUFFER_SHA256

@@ -377,23 +377,22 @@ multitap otherwise. The E6 ROM has only its own QWERTY key mappings
 returned an error the game ignores, and the input mediator's current mode stayed
 null. On a phone AknCapServer publishes the property from the Avkon repository's
 keyboard layout (key 0xB, 3 = QWERTY 4x10 on the E6); EKA2L1 replaces
-AknCapServer and published nothing. This was an emulator fault: yeatse/EKA2L1
-`76927ab` (branch `claude/keen-bardeen-g9za5a`) publishes both keys. With it,
-Tetris on the E6 reaches its tutorial and Hooked's name entry takes input; the
-X7 repository holds 0 and is unaffected. The package is unchanged for this.
+AknCapServer and published nothing. This was an emulator fault, fixed in
+yeatse/EKA2L1 `76927ab`. With it, Tetris on the E6 reaches its tutorial and
+Hooked's name entry takes input; the X7 repository holds 0 and is unaffected.
 
-## QWERTY game keys — E6 and E7
+In the same profile, the control API's ngage2 launch closed Games and started
+the Games UI executable alone, which brings PlayServer up with "noPlayUi"; Hooked
+then crashed at start on the X7 every time. yeatse/EKA2L1 `a7e93dd` keeps Games
+(PlayServer) as the entry point, as on a phone.
 
-An E7 tester asked for keyboard keys suited to its layout. The installer now
-rewrites the N97 profile's game-key translation: W E R / S D F / X C V are 1 to
-9, Z is 0, Q and A are the primary and secondary action keys next to Enter and
-Backspace, and J and H stay * and #. The touch keypad sends the same keys. On
-the E6 profile, a breakpoint on `ngiinput.dll`'s standard lookup dumped the
-table loaded in Tetris: 23 rows with exactly these entries, and the arrows,
-select key and softkey scans unchanged. All 41 host checks pass.
+## Keyboard mapping file
 
-EKA2L1 keeps a persisted copy of each repository and preferred it over the
-upgraded `20001079.cre`, so the old table stayed in use until the copy under
-`C:\private\10202be9\persists` was deleted. On a phone Central Repository
-merges an upgraded repository on installation and takes the new value of every
-setting no client has changed. The phone upgrade path is not yet tested.
+An E7 tester asked for keyboard keys suited to its layout. Rather than a fixed
+layout, the touch service maps keys listed in `C:\Data\N-Gage\keymap.ini`
+(`docs/keymap-example.ini`); without the file nothing changes. On the E6
+profile, with `LEFT = RIGHT`, `K = LEFT` and `q = ok`, Q selected Tetris'
+Single-player item, K moved a piece to the left wall and the left arrow moved it
+to the right wall only. EKA2L1 delivered captured key ups and downs to nobody and
+captured key events to the focused application as well; yeatse/EKA2L1 `ca1e844`
+gives them only to the capturer, as WSERV does. All 40 host checks pass.

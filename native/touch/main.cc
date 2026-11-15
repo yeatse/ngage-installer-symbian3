@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <memory>
 #include <e32property.h>
+#include <f32file.h>
 #include "../common/touch_controls.h"
 #include "../common/touch_service.h"
 
@@ -24,10 +25,9 @@ constexpr std::array<Binding, 22> kBindings{{
     {EStdKeyEnter, EKeyEnter}, {EStdKeyBackspace, EKeyBackspace},
     {EStdKeyDevice0, EKeyDevice0},
     {EStdKeyDevice1, EKeyDevice1},
-    // The installer's key translation takes the keypad from the QWERTY keyboard: W E R, S D F and X C V are
-    // 1 to 9, Z is 0, J is * and H is #.
-    {'W', 'w'}, {'E', 'e'}, {'R', 'r'}, {'S', 's'}, {'D', 'd'}, {'F', 'f'},
-    {'X', 'x'}, {'C', 'c'}, {'V', 'v'}, {'J', 'j'}, {'Z', 'z'}, {'H', 'h'},
+    // The N97 profile takes keypad keys from its QWERTY keyboard: Q to P are 1 to 0, J is * and H is #.
+    {'Q', 'q'}, {'W', 'w'}, {'E', 'e'}, {'R', 'r'}, {'T', 't'}, {'Y', 'y'},
+    {'U', 'u'}, {'I', 'i'}, {'O', 'o'}, {'J', 'j'}, {'P', 'p'}, {'H', 'h'},
     // The profile has no clear key; the input library's lookup takes F1 for it.
     {EStdKeyF1, EKeyF1}
 }};
@@ -39,6 +39,90 @@ static_assert(EStdKeyEnter == 0x03 && EStdKeyBackspace == 0x01);
 constexpr int kButtonCount = kBindings.size();
 static_assert(kButtonCount == Ngage::kTouchButtons);
 constexpr unsigned Bit(int button) { return 1u << button; }
+
+// Keyboard keys that C:\Data\N-Gage\keymap.ini turns into game keys, one "Key = Button" a line.
+_LIT(KKeyMapFile, "C:\\Data\\N-Gage\\keymap.ini");
+struct KeyMapping {
+    TInt scan;
+    TUint codes[2];
+    int button;
+    bool held;
+    TInt32 captures[3];
+};
+struct NamedKey {
+    const char* name;
+    TInt scan;
+    TUint code;
+};
+constexpr NamedKey kNamedKeys[] = {
+    {"SPACE", EStdKeySpace, EKeySpace}, {"ENTER", EStdKeyEnter, EKeyEnter},
+    {"BACKSPACE", EStdKeyBackspace, EKeyBackspace}, {"UP", EStdKeyUpArrow, EKeyUpArrow},
+    {"DOWN", EStdKeyDownArrow, EKeyDownArrow}, {"LEFT", EStdKeyLeftArrow, EKeyLeftArrow},
+    {"RIGHT", EStdKeyRightArrow, EKeyRightArrow}, {"COMMA", EStdKeyComma, ','},
+    {"PERIOD", EStdKeyFullStop, '.'}};
+struct NamedButton {
+    const char* name;
+    int button;
+};
+constexpr NamedButton kNamedButtons[] = {
+    {"UP", Ngage::kTouchUp}, {"DOWN", Ngage::kTouchDown}, {"LEFT", Ngage::kTouchLeft},
+    {"RIGHT", Ngage::kTouchRight}, {"OK", Ngage::kTouchOk}, {"A", Ngage::kTouchA}, {"B", Ngage::kTouchB},
+    {"L", Ngage::kTouchL}, {"R", Ngage::kTouchR}, {"C", Ngage::kTouchClear},
+    {"*", Ngage::kTouchKeypad + 9}, {"0", Ngage::kTouchKeypad + 10}, {"#", Ngage::kTouchKeypad + 11}};
+
+bool Named(const TDesC8& token, const char* name) {
+    return token.CompareF(TPtrC8(reinterpret_cast<const TUint8*>(name), User::StringLength(
+        reinterpret_cast<const TUint8*>(name)))) == 0;
+}
+
+TPtrC8 Trim(TPtrC8 text) {
+    while (text.Length() && (text[0] == ' ' || text[0] == '\t')) text.Set(text.Mid(1));
+    while (text.Length() && (text[text.Length() - 1] == ' ' || text[text.Length() - 1] == '\t'))
+        text.Set(text.Left(text.Length() - 1));
+    return text;
+}
+
+// A letter or digit, a named key, or a raw scan code such as 0x79.
+bool ParseKey(const TDesC8& token, KeyMapping& mapping) {
+    mapping.codes[0] = mapping.codes[1] = 0;
+    if (token.Length() == 1) {
+        TUint c = token[0];
+        if (c >= 'a' && c <= 'z') c -= 'a' - 'A';
+        if (c >= 'A' && c <= 'Z') {
+            mapping.scan = c; mapping.codes[0] = c + ('a' - 'A'); mapping.codes[1] = c;
+            return true;
+        }
+        if (c >= '0' && c <= '9') {
+            mapping.scan = c; mapping.codes[0] = c;
+            return true;
+        }
+        return false;
+    }
+    for (const NamedKey& key : kNamedKeys) {
+        if (Named(token, key.name)) {
+            mapping.scan = key.scan; mapping.codes[0] = key.code;
+            return true;
+        }
+    }
+    if (token.Length() > 2 && token[0] == '0' && (token[1] == 'x' || token[1] == 'X')) {
+        TLex8 lex(token.Mid(2));
+        TUint scan = 0;
+        if (lex.Val(scan, EHex) == KErrNone && lex.Eos() && scan > 0 && scan < 0x100) {
+            mapping.scan = scan;
+            return true;
+        }
+    }
+    return false;
+}
+
+// A pad direction, OK, A, B, L, R, a keypad key (0-9, * and #) or the keypad's C.
+int ParseButton(const TDesC8& token) {
+    if (token.Length() == 1 && token[0] >= '1' && token[0] <= '9') return Ngage::kTouchKeypad + token[0] - '1';
+    for (const NamedButton& button : kNamedButtons) {
+        if (Named(token, button.name)) return button.button;
+    }
+    return -1;
+}
 
 struct ScopedWsSession : RWsSession {
     ~ScopedWsSession() { Close(); }
@@ -79,7 +163,88 @@ class Controls {
     bool hidden_ = false;
     bool keypad_ = false;
     bool requests_ = false;
+    std::array<KeyMapping, 64> keys_{};
+    int key_count_ = 0;
+    bool captured_ = false;
     enum : int { kNowhere = -1, kPad = -2 };
+
+    void LoadKeyMap() {
+        RFs fs;
+        if (fs.Connect() != KErrNone) return;
+        RFile file;
+        TBuf8<4096> text;
+        if (file.Open(fs, KKeyMapFile, EFileRead | EFileShareReadersOrWriters) == KErrNone) {
+            file.Read(text);
+            file.Close();
+        }
+        fs.Close();
+        // Notepad-style UTF-16: the keys and buttons are ASCII, so keep every low byte.
+        if (text.Length() >= 2 && text[0] == 0xff && text[1] == 0xfe) {
+            TInt length = 0;
+            for (TInt i = 2; i + 1 < text.Length(); i += 2) text[length++] = text[i];
+            text.SetLength(length);
+        }
+        if (text.Length() >= 3 && text[0] == 0xef && text[1] == 0xbb && text[2] == 0xbf) text.Delete(0, 3);
+        TPtrC8 rest(text);
+        while (rest.Length() && key_count_ < static_cast<int>(keys_.size())) {
+            TInt end = rest.Locate('\n');
+            TPtrC8 line = end < 0 ? rest : rest.Left(end);
+            rest.Set(end < 0 ? TPtrC8() : rest.Mid(end + 1));
+            if (line.Length() && line[line.Length() - 1] == '\r') line.Set(line.Left(line.Length() - 1));
+            // ';' starts a comment; '#' is a keypad key.
+            const TInt comment = line.Locate(';');
+            if (comment >= 0) line.Set(line.Left(comment));
+            const TInt equals = line.Locate('=');
+            if (equals < 0) continue;
+            KeyMapping& mapping = keys_[key_count_];
+            mapping = KeyMapping{};
+            mapping.button = ParseButton(Trim(line.Mid(equals + 1)));
+            if (mapping.button < 0 || !ParseKey(Trim(line.Left(equals)), mapping)) continue;
+            bool duplicate = false;
+            for (int i = 0; i < key_count_; ++i) duplicate = duplicate || keys_[i].scan == mapping.scan;
+            if (!duplicate) ++key_count_;
+        }
+    }
+
+    // The mapped keys are taken from the game only while it has focus.
+    void Capture(bool on) {
+        if (on == captured_) return;
+        captured_ = on;
+        for (int i = 0; i < key_count_; ++i) {
+            KeyMapping& mapping = keys_[i];
+            if (on) {
+                mapping.captures[0] = group_.CaptureKeyUpAndDowns(mapping.scan, 0, 0);
+                for (int code = 0; code < 2; ++code)
+                    mapping.captures[code + 1] = mapping.codes[code] ? group_.CaptureKey(mapping.codes[code], 0, 0) : 0;
+                continue;
+            }
+            if (mapping.captures[0] > 0) group_.CancelCaptureKeyUpAndDowns(mapping.captures[0]);
+            for (int code = 1; code < 3; ++code)
+                if (mapping.captures[code] > 0) group_.CancelCaptureKey(mapping.captures[code]);
+            mapping.captures[0] = mapping.captures[1] = mapping.captures[2] = 0;
+        }
+    }
+
+    // A captured key's own key event is dropped; the game key's events come from its down and up.
+    void Keyboard(const TWsEvent& event) {
+        const bool down = event.Type() == EEventKeyDown;
+        const TInt scan = event.Key()->iScanCode;
+        for (int i = 0; i < key_count_; ++i) {
+            KeyMapping& mapping = keys_[i];
+            if (mapping.scan != scan || mapping.held == down) continue;
+            mapping.held = down;
+            const int button = mapping.button;
+            if (down && held_[button]++ == 0) {
+                Send(button, EEventKeyDown);
+                Send(button, EEventKey);
+                repeat_at_[button] = clock_ + 4;
+            } else if (!down && held_[button] > 0 && --held_[button] == 0) {
+                Send(button, EEventKeyUp);
+            }
+            Publish();
+            return;
+        }
+    }
 
     bool GameHasFocus(TInt focus) {
         TThreadId id;
@@ -157,6 +322,7 @@ class Controls {
             held_[i] = 0;
         }
         pointers_.fill(0);
+        for (int i = 0; i < key_count_; ++i) keys_[i].held = false;
         Publish();
     }
 
@@ -165,6 +331,7 @@ class Controls {
         if (overlay_) overlay_->SetVisible(active_ && composited_);
         capture_->SetPointerCapture(active_ ? RWindowBase::TCaptureFlagEnabled | RWindowBase::TCaptureFlagAllGroups
                                             : RWindowBase::TCaptureDisabled);
+        Capture(active_);
         Publish();
     }
 
@@ -338,6 +505,7 @@ public:
         state_defined_ = true;
         if ((result = state_.Attach(category, key)) != KErrNone) return result;
         origin_.fill(kNowhere);
+        LoadKeyMap();
         if ((result = timer_.CreateLocal()) != KErrNone) return result;
         Layout();
         Publish();
@@ -353,6 +521,7 @@ public:
                 TWsEvent event;
                 ws_.GetEvent(event);
                 if (event.Type() == EEventPointer) Pointer(event);
+                if (event.Type() == EEventKeyDown || event.Type() == EEventKeyUp) Keyboard(event);
                 ws_.EventReady(&events_);
             }
             if (tick_ != KRequestPending) {

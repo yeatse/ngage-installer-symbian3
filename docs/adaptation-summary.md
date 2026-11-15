@@ -126,21 +126,23 @@ A and B send Enter and Backspace, the primary and secondary action keys of
 the N97 NGI input profile that Symbian^3 selects. That profile has no keypad
 digits, so phone-keypad keys such as 5 and 7 reach the game unmapped.
 
-The N97 profile takes the phone keypad from its QWERTY keyboard, as Q to P for
-1 to 0, J for * and H for #. On an E6 or E7 that row is awkward to play on, so
-the installer rewrites the profile's key translation (both orientations): W E
-R, S D F and X C V are 1 to 9 in three rows, Z is 0, and Q and A join Enter and
-Backspace as the primary and secondary action keys. J and H stay * and #, and T
-to P no longer translate. Only the game-key table changes; the internal table
-that text input reads keeps every letter.
-
 A switch at the lower left replaces A and B with a phone keypad (1-9, *, 0, #
-and a clear key) and back; the pad, L and R stay in both layouts. The keypad
-sends the keyboard keys of that translation: W to V for 1 to 9, Z for 0, J for *
-and H for #. The profile has no clear key, which multi-tap
+and a clear key) and back; the pad, L and R stay in both layouts. The N97
+profile takes the keypad from its QWERTY keyboard, so the keypad sends Q to P
+for 1 to 0, J for * and H for #. The profile has no clear key, which multi-tap
 text entry such as naming a Sim in The Sims 2 Pets needs for deleting; the
 keypad's C sends F1, and the input adapter below maps it to the logical clear
 key 0x4000 of keypad phones.
+
+Keyboard keys can be mapped to game buttons in `C:\Data\N-Gage\keymap.ini`, one
+`Key = Button` per line (`K = 7`, `Q = A`). There is no default mapping. The touch
+service reads the file when it starts with the game. While the game has focus it
+captures each mapped key from the window server (`CaptureKeyUpAndDowns` for its
+scan code and `CaptureKey` for its codes, which the service's SwEvent capability
+allows) and sends the button's key events to the game, the same events the touch
+controls send, so a mapped key and a touch button combine into one hold and
+repeat. The game does not see the original key. Captures are released when
+another application takes focus.
 
 L/R cannot be implemented simply by sending Enter/Backspace. Following NGI's
 original pointer path, a source-built Thumb adapter augments the pinned
