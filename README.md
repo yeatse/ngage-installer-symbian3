@@ -32,10 +32,43 @@ the phone.
 - The button at the lower left switches the right side between A/B and a number keypad
   with a C key, for games that use number keys or need text entered.
 - The phone's volume keys change the game volume.
-- Phones with a keyboard (E6, E7) can map keyboard keys to game buttons in
-  `C:\Data\N-Gage\keymap.ini`, one `Key = Button` per line, for example `K = 7`.
-  See [the example](docs/keymap-example.ini) for the key and button names. The
-  file is read when a game starts.
+- On phones with a keyboard (E6, E7), keyboard keys can be mapped to game buttons;
+  see [Keyboard mapping](#keyboard-mapping).
+
+## Keyboard mapping
+
+Without a mapping file, keyboard keys work as on the N97: the arrow keys are the
+pad, Enter is A, Backspace is B, Q to P are 1 to 0, J is * and H is #.
+
+To choose your own keys, create a text file named **`keymap.ini`** in
+**`C:\Data\N-Gage`** (phone memory) with one `Key = Button` per line:
+
+```ini
+; ';' starts a comment
+Q = A
+A = B
+W = 1
+E = 2
+R = 3
+K = 7
+Left = Right
+```
+
+- **Key** is a keyboard key: `A` to `Z`, `0` to `9`, `Space`, `Enter`, `Backspace`,
+  `Up`, `Down`, `Left`, `Right`, `Comma`, `Period`, or a scan code such as `0x79`.
+- **Button** is a game button: `Up`, `Down`, `Left`, `Right`, `OK`, `A`, `B`, `L`, `R`,
+  `0` to `9`, `*`, `#`, or `C` (the keypad's clear key).
+- Names are not case-sensitive. If a key is listed twice, the first line counts;
+  lines that are not understood are ignored.
+- A mapped key no longer reaches the game as itself; keys that are not listed keep
+  working as before. The mapping applies only while a game is in the foreground.
+- The file is read when a game starts: restart the game after changing it.
+
+A USB connection shows only the mass memory and the memory card, not `C:`. Copy
+the file to the phone, then move it to `C:\Data\N-Gage` with the phone's file
+manager, or create it there with a text editor.
+[`docs/keymap-example.ini`](docs/keymap-example.ini) is a complete example with
+an E7 layout.
 
 ## More
 
