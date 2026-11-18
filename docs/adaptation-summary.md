@@ -15,7 +15,15 @@ touch profile on newer systems. Component UIDs, versions, E32 header checksums
 and SIS hashes are updated consistently so hacked phones can upgrade an existing
 installation without signing the package.
 
-The original Games workflow is retained: copy `.n-gage` files to `E:\n-gage`,
+The N97 package fixed 428 of its files to `E:`, the N97's mass memory, so it could
+not be installed on a phone whose `E:` drive is damaged. Those files now install
+to the drive the user selects; the files already fixed to `C:` stay there. The
+Games components address their data either on `C:` or by drive-relative paths,
+and Games looks for `\n-gage` on every drive and asks where to install each game.
+With N-Gage, a game and its data all on `F:` and no `E:` drive, the emulator ran
+Asphalt 4 into a race on an E6 ROM.
+
+The original Games workflow is retained: copy `.n-gage` files to `\n-gage` on a drive,
 install them inside Games, then launch them from their covers. The touch service
 runs only while its owning game process exists, without registering an extra
 Games(Touch) launcher icon. The display DLL passes its process ID to the helper,

@@ -31,7 +31,20 @@ def is_n97_comparison(field):
         Field(29, struct.pack('<II', 16, N97_MACHINE_UID))]
 
 
+def selectable_drive(field, counts):
+    # SISFileDescription: target, MIME type, optional capabilities and hash, then 28 fixed bytes.
+    members = fields(field.payload[:-28])
+    target = members[0].payload.decode('utf-16le')
+    if target[:2].lower() != 'e:':
+        return field
+    counts['selectable_drive_files'] += 1
+    return Field(24, sequence([Field(1, ('!' + target[1:]).encode('utf-16le')), *members[1:]])
+                 + field.payload[-28:])
+
+
 def rewrite(field, counts):
+    if field.kind == 24:
+        return selectable_drive(field, counts)
     if field.kind == 17:
         updated = product_prerequisite(field)
         if updated != field:
@@ -94,7 +107,7 @@ def adapt_client(raw):
         raise ValueError('Expected the pinned N97 v1.30(1541) client')
     original = Package.parse(raw)
     counts = {'touch_profile_conditions': 0, 'removed_signatures': 0,
-              'device_prerequisites': 0}
+              'device_prerequisites': 0, 'selectable_drive_files': 0}
     controller = rewrite(original.controller, counts)
     children = fields(controller.payload)
     if sum(child.kind == 17 for child in children) != 1:
@@ -104,7 +117,8 @@ def adapt_client(raw):
                for f in fields(info.payload[:-2])]
     children = [Field(14, sequence(members) + info.payload[-2:]) if child is info else child
                 for child in children]
-    if not counts['touch_profile_conditions'] or not counts['removed_signatures']:
+    if not all(counts[key] for key in ('touch_profile_conditions', 'removed_signatures',
+                                         'selectable_drive_files')):
         raise ValueError('Original controller did not match expected adaptation points')
     result = Package(original.uid_header, Field(13, sequence(children)), original.data)
     encoded = result.encode()

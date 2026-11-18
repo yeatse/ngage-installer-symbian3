@@ -16,9 +16,13 @@ Tested on a **Nokia 808 Belle**: every game tested so far runs.
 
 1. Download **`ngage-installer-symbian3.sis`** from the
    [latest release](https://github.com/yeatse/ngage-installer-symbian3/releases/latest).
-2. Copy it to your phone and install it. No signing is needed.
-3. Copy your `.n-gage` game files to **`E:\n-gage`**.
-4. Open **Games**, install a game there, then tap its cover to play.
+2. Copy it to your phone and install it. No signing is needed. When the phone
+   asks where to install, any drive works, for example the memory card if the
+   mass memory is unusable. A few settings files always go to phone memory (`C:`).
+3. Copy your `.n-gage` game files to an `n-gage` folder at the top of any drive,
+   for example **`E:\n-gage`** or **`F:\n-gage`** on the memory card.
+4. Open **Games**, install a game there, then tap its cover to play. Games asks
+   which drive to install each game to.
 
 To upgrade, close Games, install the new package over the old one, then restart
 the phone.

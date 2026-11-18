@@ -396,3 +396,15 @@ Single-player item, K moved a piece to the left wall and the left arrow moved it
 to the right wall only. EKA2L1 delivered captured key ups and downs to nobody and
 captured key events to the focused application as well; yeatse/EKA2L1 `ca1e844`
 gives them only to the capturer, as WSERV does. All 40 host checks pass.
+
+## Installing without a usable E: drive
+
+A user's phone has a damaged `E:`, and the N97 package fixed 428 files to `E:`.
+For the test, EKA2L1 was locally patched to model an E7/808 layout (internal
+`E:`, removable `F:`) and to start without an `E:` drive. On a fresh E6 profile
+with the hacked-phone install service fixture and no `E:`, the package
+installed its selectable files on `F:`. Games found `F:\n-gage\asphalt4.n-gage`,
+installed Asphalt 4 to `F:`, and the game ran into a race. With `E:` present
+and internal, a game copied to `F:\n-gage` was also listed and installed to
+`F:`. Snakes Subsonic from the archive stops at its own activation check on `E:`
+and on `F:` alike. The emulator patch was not kept.

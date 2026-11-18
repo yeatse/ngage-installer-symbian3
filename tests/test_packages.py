@@ -67,7 +67,7 @@ class OriginalInstallerTests(unittest.TestCase):
         self.assertEqual(adapted.data, original.data)
         self.assertFalse(any(f.kind == 39 for f in descendants(adapted.controller)))
         self.assertEqual(report, {'touch_profile_conditions': 25, 'removed_signatures': 30,
-                                  'device_prerequisites': 15})
+                                  'device_prerequisites': 15, 'selectable_drive_files': 428})
         self.assertEqual(adapted.controller.payload.count(SYMBIAN3_MARKER.encode('utf-16le')), 25)
         self.assertEqual(adapted.controller.payload.count(BELLE_MARKER.encode('utf-16le')), 25)
         pre = next(f for f in fields(adapted.controller.payload) if f.kind == 17)
@@ -88,6 +88,20 @@ class OriginalInstallerTests(unittest.TestCase):
             devices = array_items(new_arrays[0])
             uids = [struct.unpack('<I', fields(d.payload)[0].payload)[0] for d in devices]
             self.assertEqual(uids, [SYMBIAN3_PRODUCT_UID, BELLE_PRODUCT_UID])
+
+    def test_e_drive_files_install_to_the_selected_drive(self):
+        original = Package.parse(extract_client(Package.parse(self.original)))
+        adapted = Package.parse(adapt_client(extract_client(Package.parse(self.original)))[0])
+
+        def targets(package):
+            return [fields(f.payload[:-28])[0].payload.decode('utf-16le')
+                    for f in descendants(package.controller) if f.kind == 24]
+
+        before, after = targets(original), targets(adapted)
+        self.assertEqual(len(before), len(after))
+        for old, new in zip(before, after):
+            self.assertEqual(new, '!' + old[1:] if old[:2].lower() == 'e:' else old)
+        self.assertFalse(any(t[:2].lower() == 'e:' for t in after))
 
     def test_adaptation_rejects_an_unrecognized_source(self):
         with self.assertRaisesRegex(ValueError, 'pinned N97'):
