@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.28)
+project(crash_watch LANGUAGES CXX ASM)
+include(SymbianApp)
+symbian_add_executable(crash_watch main.cc)
+target_include_directories(crash_watch SYSTEM PRIVATE "${SYMBIAN_SDK_PREFIX}/include/native")
+target_link_libraries(crash_watch PRIVATE Symbian::Stackless Symbian::EUser Symbian::FileServer)
+target_link_options(crash_watch PRIVATE --gc-sections)
+symbian_publish_executable(crash_watch UID3 0xe00009a2)

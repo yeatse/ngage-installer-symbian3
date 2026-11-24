@@ -1,0 +1,17 @@
+[project]
+architecture = "armv6"
+name = "crash_watch"
+kind = "e32-import-experiment"
+cmake_preset = "symbian-pic"
+uid3 = 0xe00009a2
+
+[package]
+uid = 0xe00009a3
+name = "N-Gage crash watch"
+vendor = "ngage-installer-symbian3"
+executable_name = "crash_watch.exe"
+version = [1, 0, 0]
+
+[application]
+caption = "N-Gage crash watch"
+short_caption = "Crash watch"
