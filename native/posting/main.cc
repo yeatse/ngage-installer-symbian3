@@ -10,6 +10,7 @@
 #include <graphics/surfaceupdateclient.h>
 #include <graphics/surfaceconfiguration.h>
 #include "../common/touch_controls.h"
+#include "../common/video_window.h"
 #include "../common/touch_service.h"
 
 
@@ -374,8 +375,15 @@ public:
         RProperty::Define(category, Ngage::kTouchCompositorKey, RProperty::EInt, anyone, anyone);
         RProperty::Set(category, Ngage::kTouchCompositorKey, composited);
     }
+    // The player draws through its own background surface on the window, which removing ours would take off.
+    static bool VideoOwnsWindow() {
+        const TUid category = {static_cast<TInt32>(RProcess().SecureId().iId)};
+        TInt owner = 0;
+        return RProperty::Get(category, Ngage::kVideoWindowKey, owner) == KErrNone &&
+               owner == static_cast<TInt>(RProcess().Id().Id());
+    }
     void HideSurface() {
-        if (visible_) compositor_.Hide(*game_);
+        if (visible_ && !VideoOwnsWindow()) compositor_.Hide(*game_);
         visible_ = false;
     }
     void CloseSurface() {
@@ -561,7 +569,8 @@ public:
             }
         }
         if (target_) {
-            if (ShowSurface(shown, viewport)) compositor_.Submit(id_);
+            if (VideoOwnsWindow()) visible_ = false;
+            else if (ShowSurface(shown, viewport)) compositor_.Submit(id_);
             return KErrNone;
         }
         Blend(frame, pitch, area);

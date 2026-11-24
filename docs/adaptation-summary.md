@@ -160,6 +160,23 @@ clear key, retaining the original lookup for other keys. Builds validate the ups
 locations, relocation and both package copies, then execute the adapter on an
 ARM CPU to verify its ABI behavior.
 
+## Intro videos
+
+On the Nokia 808, `CVideoPlayerUtility::NewL` leaves with `KErrNotSupported` when
+the target window already has a background surface. The ROM player puts its own
+surface on that window. The posting DLL's compositor surface therefore made
+Asphalt 4 fail when its intro video started: NGI video ignored the leave and
+crashed with KERN-EXEC 3. A probe showed that the same window plays normally once
+the posting surface is removed.
+
+NGI video's MMF import is redirected to a source-built bridge DLL, which forwards
+calls to ROM `mediaclientvideo`. Before `NewL` or `SetDisplayWindowL`, the bridge
+removes any background surface from the target window. It then writes the game's
+process ID to a property keyed by the game's SID. While that property names the
+process, the posting DLL leaves its surface off without removing the window's
+surface, which now belongs to the player. `Close` clears the property, and the
+next game frame shows the posting surface again.
+
 ## Audio and system volume
 
 The NGI audio library's MMF import is redirected to a source-built bridge DLL,

@@ -9,6 +9,7 @@ import sys
 
 from adapt_client import adapt_client, target_component
 from audio_compat import adapt_audio
+from video_compat import adapt_video
 from input_compat import adapt_input, compile_softkeys
 from orientation_compat import adapt_orientation, compile_orientation
 from component_identity import patch_image, replace_image, header_crc
@@ -130,9 +131,11 @@ def main():
     components = [posting, touch]
     parent = adapt_input(adapt_audio(adapt_licence(parent)), compile_softkeys(sdk, ROOT))
     parent = adapt_fileaccess(adapt_memory(adapt_orientation(parent, compile_orientation(sdk, ROOT))))
-    parent = adapt_heap(parent)
+    parent = adapt_video(adapt_heap(parent))
     components.append(native_dll(sdk, touch, 'audio', 'NgageSoundX', 0xe0000964, 0xe0000965,
                                  'N-Gage native audio compatibility'))
+    components.append(native_dll(sdk, touch, 'video', 'NgageVideoBridge', 0xe000096a, 0xe000096b,
+                                 'N-Gage native video compatibility'))
     components.append(native_dll(sdk, touch, 'heap', 'ngheap', 0xe0000968, 0xe0000969,
                                  'N-Gage legacy thread heap compatibility'))
     components.append(recognizer_component(sdk, touch))
