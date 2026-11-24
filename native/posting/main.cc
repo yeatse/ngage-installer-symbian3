@@ -196,6 +196,30 @@ public:
     }
 };
 
+// Calls back when the video bridge changes the window property, so a picture the game drew while a
+// player held the window is shown even if no further frame comes.
+class VideoWatch final : public CActive {
+public:
+    VideoWatch(void (*changed)(TAny*), TAny* context) : CActive(EPriorityStandard), changed_(changed), context_(context) {}
+    ~VideoWatch() override { Cancel(); property_.Close(); }
+    void Start() {
+        const TUid category = {static_cast<TInt32>(RProcess().SecureId().iId)};
+        if (property_.Attach(category, Ngage::kVideoWindowKey) != KErrNone) return;
+        CActiveScheduler::Add(this);
+        Subscribe();
+    }
+private:
+    void Subscribe() { property_.Subscribe(iStatus); SetActive(); }
+    void RunL() override {
+        if (iStatus.Int() != KErrNone) return;
+        Subscribe();
+        changed_(context_);
+    }
+    void DoCancel() override { property_.Cancel(); }
+    RProperty property_;
+    void (*changed_)(TAny*);
+    TAny* context_;
+};
 class Surface final : public CPostingSurface {
     RWsSession ws_;
     CWsScreenDevice* screen_ = nullptr;
@@ -238,8 +262,17 @@ class Surface final : public CPostingSurface {
     bool visible_ = false;
     bool configured_ = false;
     TSize surface_{0, 0};
+    TRect shown_rect_;
+    TRect viewport_;
+    VideoWatch* video_ = nullptr;
+    static void VideoChanged(TAny* context) {
+        auto& surface = *static_cast<Surface*>(context);
+        if (!surface.target_ || surface.shown_rect_.IsEmpty() || surface.VideoOwnsWindow()) return;
+        if (surface.ShowSurface(surface.shown_rect_, surface.viewport_)) surface.compositor_.Submit(surface.id_);
+    }
 public:
     ~Surface() override {
+        delete video_;
         Destroy();
         ReleaseDirect();
         clip_.Close();
@@ -255,6 +288,10 @@ public:
         screen_ = new(ELeave) CWsScreenDevice(ws_);
         User::LeaveIfError(screen_->Construct(screen));
         User::LeaveIfError(RFbsSession::Connect()); fbs_connected_ = true;
+        if (CActiveScheduler::Current()) {
+            video_ = new(ELeave) VideoWatch(VideoChanged, this);
+            video_->Start();
+        }
     }
     TBool FormatSupported(TPostingFormat format) override {
         return PixelOf(format) != Pixel::kInvalid;
@@ -376,11 +413,17 @@ public:
         RProperty::Set(category, Ngage::kTouchCompositorKey, composited);
     }
     // The player draws through its own background surface on the window, which removing ours would take off.
-    static bool VideoOwnsWindow() {
+    // Returns whether it does; a released window is taken back once.
+    bool VideoOwnsWindow() {
         const TUid category = {static_cast<TInt32>(RProcess().SecureId().iId)};
+        const TInt process = static_cast<TInt>(RProcess().Id().Id());
         TInt owner = 0;
-        return RProperty::Get(category, Ngage::kVideoWindowKey, owner) == KErrNone &&
-               owner == static_cast<TInt>(RProcess().Id().Id());
+        if (RProperty::Get(category, Ngage::kVideoWindowKey, owner) != KErrNone) return false;
+        if (owner == -process) {
+            visible_ = false;
+            RProperty::Set(category, Ngage::kVideoWindowKey, 0);
+        }
+        return owner == process;
     }
     void HideSurface() {
         if (visible_ && !VideoOwnsWindow()) compositor_.Hide(*game_);
@@ -569,6 +612,7 @@ public:
             }
         }
         if (target_) {
+            shown_rect_ = shown; viewport_ = viewport;
             if (VideoOwnsWindow()) visible_ = false;
             else if (ShowSurface(shown, viewport)) compositor_.Submit(id_);
             return KErrNone;

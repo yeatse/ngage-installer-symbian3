@@ -2,7 +2,8 @@
 #include <e32std.h>
 
 namespace Ngage {
-// Property of the game's SID holding the process ID of a game whose video player owns its window.
-// The 808's CVideoPlayerUtility leaves with KErrNotSupported on a window with a background surface.
+// Property of the game's SID: the game's process ID while its video player needs the window, the
+// negated ID once the posting surface must be shown again. The 808's CVideoPlayerUtility neither
+// starts nor plays on a window with another background surface.
 constexpr TUint kVideoWindowKey = 0xe000096a;
 }

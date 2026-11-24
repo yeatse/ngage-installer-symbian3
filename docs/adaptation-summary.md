@@ -170,15 +170,19 @@ crashed with KERN-EXEC 3. A probe showed that the same window plays normally onc
 the posting surface is removed.
 
 NGI video's MMF import is redirected to a source-built bridge DLL, which forwards
-calls to ROM `mediaclientvideo`. Before `NewL`, the bridge saves the window's
-background surface configuration and removes it. Before `OpenFileL`, it puts the
-surface back, so the game's last frame stays visible while the file opens; window
-server replaces it when the player sets its own surface. A `SetDisplayWindowL`
-that arrives while the game's surface is still shown removes it again. It then writes the game's
-process ID to a property keyed by the game's SID. While that property names the
-process, the posting DLL leaves its surface off without removing the window's
-surface, which now belongs to the player. `Close` clears the property, and the
-next game frame shows the posting surface again.
+calls to ROM `mediaclientvideo`. Before `NewL`, the bridge notes the posting surface
+shown on the window and removes it. It writes the game's process ID to a property
+keyed by the game's SID. While that property names the process, the posting DLL
+leaves its surface off without removing the window's surface, which belongs to the
+player.
+
+Opening and preparing the file do not need the window. Asphalt 4 asks "Do you want
+sound?" over its title screen at that point and starts playback only after the
+answer. At `OpenFileL` the bridge therefore writes the negated process ID. The
+posting DLL subscribes to the property and puts its surface back immediately with
+the last frame it received, because the game may not post another frame for the
+prompt. Before `Play` or `SetDisplayWindowL`, the bridge removes the posting surface
+again if it is still shown and writes the process ID. `Close` releases the window.
 
 ## Audio and system volume
 
