@@ -21,8 +21,12 @@ on a new full-screen window:
    of the game window at the intro;
 5. the same, with the posting surface destroyed before the video.
 
-For each stage it logs the `NewL`, open, prepare and play results.
+For each stage it logs the `NewL`, open, prepare and play results. A stage that
+has not ended 40 seconds after it starts is killed (`hung, killed`) so that the
+next one runs.
 
-In EKA2L1 (X7) every stage plays the video. The emulator's own
-`mediaclientvideo` then faults when the player is deleted, so `player deleted` and
-`leave=` are missing there.
+On the 808, build 1 played stage 0 and then never returned from deleting the
+`CVideoPlayerUtility` after `Close`, so build 2 leaves it to the thread's exit.
+
+In EKA2L1 (X7) every stage plays the video; the stage thread then faults during
+cleanup, so `closed` and `leave=` are missing there.

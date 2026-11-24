@@ -221,7 +221,9 @@ private:
 class Player : public CBase, public MVideoPlayerUtilityObserver {
 public:
     explicit Player(Log &log) : iLog(log) {}
-    ~Player() { delete iTimer; delete iUtility; }
+    // The utility is not deleted: on the 808 deleting it after Close never returned. The thread's
+    // exit closes its sessions instead.
+    ~Player() { delete iTimer; }
     // Plays up to eight seconds; returns the first error of NewL, open, prepare or play.
     TInt Run(RWsSession &ws, CWsScreenDevice &device, RWindowBase &window, TSize size) {
         const TRect rect(size);
@@ -344,9 +346,8 @@ void RunL(Log &log, TInt stage) {
     CleanupStack::PushL(player);
     TInt r = player->Run(ws, *device, window, size);
     LOG_LINE(log, _L8("stage %d %s result=%d"), stage, kStageNames[stage], r);
-    CleanupStack::PopAndDestroy(player);
-    LOG_LINE(log, _L8("stage %d player deleted"), stage);
-    CleanupStack::PopAndDestroy(7, &ws);
+    CleanupStack::PopAndDestroy(8, &ws);
+    LOG_LINE(log, _L8("stage %d closed"), stage);
 }
 
 struct Stage { Log *log; TInt index; };
@@ -379,7 +380,7 @@ TInt Run() {
     TTime now;
     now.HomeTime();
     TDateTime t = now.DateTime();
-    LOG_LINE(log, _L8("video-probe 1 %04d-%02d-%02d %02d:%02d:%02d"), t.Year(), t.Month() + 1, t.Day() + 1,
+    LOG_LINE(log, _L8("video-probe 2 %04d-%02d-%02d %02d:%02d:%02d"), t.Year(), t.Month() + 1, t.Day() + 1,
              t.Hour(), t.Minute(), t.Second());
     if (!FindVideo(fs, log)) {
         file.Close();
@@ -397,7 +398,21 @@ TInt Run() {
         TRequestStatus status;
         worker.Logon(status);
         worker.Resume();
-        User::WaitForRequest(status);
+        // A stage that hangs is killed so the next one still runs.
+        RTimer timer;
+        timer.CreateLocal();
+        TRequestStatus timeout;
+        timer.After(timeout, 40000000);
+        User::WaitForRequest(status, timeout);
+        if (status == KRequestPending) {
+            LOG_LINE(log, _L8("stage %d hung, killed"), index);
+            worker.Kill(KErrTimedOut);
+            User::WaitForRequest(status);
+        } else {
+            timer.Cancel();
+            User::WaitForRequest(timeout);
+        }
+        timer.Close();
         TBuf8<32> category;
         category.Copy(worker.ExitCategory());
         LOG_LINE(log, _L8("stage %d exit type=%d reason=%d category=%S"), index, worker.ExitType(),
