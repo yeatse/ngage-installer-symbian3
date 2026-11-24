@@ -170,8 +170,11 @@ crashed with KERN-EXEC 3. A probe showed that the same window plays normally onc
 the posting surface is removed.
 
 NGI video's MMF import is redirected to a source-built bridge DLL, which forwards
-calls to ROM `mediaclientvideo`. Before `NewL` or `SetDisplayWindowL`, the bridge
-removes any background surface from the target window. It then writes the game's
+calls to ROM `mediaclientvideo`. Before `NewL`, the bridge saves the window's
+background surface configuration and removes it. Before `OpenFileL`, it puts the
+surface back, so the game's last frame stays visible while the file opens; window
+server replaces it when the player sets its own surface. A `SetDisplayWindowL`
+that arrives while the game's surface is still shown removes it again. It then writes the game's
 process ID to a property keyed by the game's SID. While that property names the
 process, the posting DLL leaves its surface off without removing the window's
 surface, which now belongs to the player. `Close` clears the property, and the

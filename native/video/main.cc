@@ -1,7 +1,8 @@
-// MMF video forwarding that takes the posting surface off the window a video player draws in.
+// MMF video forwarding that keeps the posting surface off the window while a video player is created.
 #include <e32std.h>
 #include <e32svr.h>
 #include <e32property.h>
+#include <graphics/surfaceconfiguration.h>
 #include <new>
 #include "../common/video_window.h"
 
@@ -12,10 +13,14 @@ extern "C" void __cxa_pure_virtual() { User::Invariant(); }
 extern "C" void _E32Startup();
 
 namespace {
-enum { kNewL = 20, kSetDisplayWindowL = 13, kClose = 24, kRemoveBackgroundSurface = 600 };
+enum { kSetDisplayWindowL = 13, kNewL = 20, kClose = 24, kOpenDesL = 27, kOpenFileL = 30 };
+enum { kGetBackgroundSurface = 596, kSetBackgroundSurface = 598, kRemoveBackgroundSurface = 600 };
 struct State {
     RLibrary video;
     RLibrary window;
+    TAny* game = nullptr;
+    TSurfaceConfiguration display;
+    bool restore = false;
 };
 State& Session() {
     auto* state = static_cast<State*>(UserSvr::DllTls(reinterpret_cast<TInt>(&_E32Startup), 0xe000096a));
@@ -37,20 +42,49 @@ void Announce(TInt owner) {
     RProperty::Define(category, Ngage::kVideoWindowKey, RProperty::EInt, anyone, anyone);
     RProperty::Set(category, Ngage::kVideoWindowKey, owner);
 }
-// The posting surface stays off while the property names this process.
+template <typename Result, typename... Arguments>
+Result Call(State& state, TInt ordinal, TAny* window, Arguments... arguments) {
+    return reinterpret_cast<Result (*)(TAny*, Arguments...)>(state.window.Lookup(ordinal))(window, arguments...);
+}
+bool Displayed(State& state, TAny* window, TSurfaceConfiguration& configuration) {
+    TSurfaceId id;
+    return Call<TInt, TSurfaceConfiguration*>(state, kGetBackgroundSurface, window, &configuration) == KErrNone &&
+           (configuration.GetSurfaceId(id), !id.IsNull());
+}
+// The player is created on a window without a background surface; the game's picture is put
+// back while the file opens, and the player's own surface replaces it.
 void TakeWindow(State& state, TAny* window) {
     Announce(static_cast<TInt>(RProcess().Id().Id()));
-    using Remove = void (*)(TAny*, TInt);
-    const auto remove = reinterpret_cast<Remove>(state.window.Lookup(kRemoveBackgroundSurface));
-    if (remove && window) remove(window, ETrue);
+    state.game = window;
+    new(&state.display) TSurfaceConfiguration;
+    state.restore = Displayed(state, window, state.display);
+    if (state.restore) Call<void, TInt>(state, kRemoveBackgroundSurface, window, ETrue);
+}
+void RestoreWindow(State& state) {
+    if (!state.restore) return;
+    state.restore = false;
+    Call<TInt, const TSurfaceConfiguration*, TInt>(state, kSetBackgroundSurface, state.game, &state.display, ETrue);
+}
+// Before the player's surface arrives, the restored picture is taken off again.
+void UpdateWindow(State& state, TAny* window) {
+    TSurfaceConfiguration current;
+    TSurfaceId shown, ours;
+    state.display.GetSurfaceId(ours);
+    if (window != state.game || !Displayed(state, window, current)) return;
+    current.GetSurfaceId(shown);
+    if (shown == ours) {
+        Call<void, TInt>(state, kRemoveBackgroundSurface, window, ETrue);
+        state.restore = true;
+    }
 }
 }
 extern "C" TLibraryFunction VideoResolve(TInt ordinal, TInt* args) {
     auto& state = Session();
     // Arguments past r3 follow the saved ip and lr.
     if (ordinal == kNewL) TakeWindow(state, reinterpret_cast<TAny*>(args[7]));
-    if (ordinal == kSetDisplayWindowL) TakeWindow(state, reinterpret_cast<TAny*>(args[3]));
-    if (ordinal == kClose) Announce(0);
+    if (ordinal == kSetDisplayWindowL) UpdateWindow(state, reinterpret_cast<TAny*>(args[3]));
+    if (ordinal == kOpenFileL || ordinal == kOpenDesL) RestoreWindow(state);
+    if (ordinal == kClose) { Announce(0); state.game = nullptr; state.restore = false; }
     const auto entry = state.video.Lookup(ordinal);
     if (!entry) User::Panic(_L("NgageVideo"), KErrNotFound);
     return entry;

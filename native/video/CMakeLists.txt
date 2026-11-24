@@ -7,6 +7,7 @@ symbian_add_dynamic_library(NgageVideoBridge SOURCES main.cc forward.S
   UID3 0xe000096a EXPORT_DEFINITION exports.def)
 set_source_files_properties(main.cc PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden")
 target_include_directories(NgageVideoBridge SYSTEM PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../posting/include"
   "${SYMBIAN_SDK_PREFIX}/include/native"
   "${SYMBIAN_SDK_PREFIX}/include/c++"
   "${SYMBIAN_SDK_PREFIX}/include/config"
