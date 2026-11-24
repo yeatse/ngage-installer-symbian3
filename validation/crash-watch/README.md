@@ -16,9 +16,14 @@ after it, and appends to `C:\Data\ngage_crash.txt`:
   export. The library is kept loaded, so its code stays where the game had it;
 - `thread.exit`/`process.exit`: exit type, reason and category;
 - for a panic: the last 16 distinct pc/lr pairs sampled every 50 ms (`trail`),
-  the register context, ROM words around a ROM pc, and the nearest export below
-  each register (`near`);
+  the register context, ROM words around a ROM pc, and the nearest ROM or RAM
+  library export below each trail address (`near tN`, pc at even N, lr at odd N)
+  and register (`near rN`);
 - free RAM at start, while running, and at exit.
+
+On a Belle phone with about 300 processes, build 1 ran out of baseline, watch and
+library slots before the game started; build 2 has room for 1024 processes, 40
+watched processes and 384 libraries, and checks each library name only once.
 
 It stops after 20 minutes with no watched process. Build and package like
 validation/rg-load-probe. For the emulator, add `-DCRASH_WATCH_TEST` to the

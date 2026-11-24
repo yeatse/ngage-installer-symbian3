@@ -7,7 +7,7 @@
 namespace {
 _LIT(KLogFile, "C:\\Data\\ngage_crash.txt");
 _LIT(KMutex, "NgageCrashWatch");
-const TInt kBuild = 1;
+const TInt kBuild = 2;
 const TInt kPollMicroseconds = 50000;
 const TInt kTrail = 16;
 const TInt kIdleLimitPolls = 20 * 60 * 20;
@@ -59,8 +59,18 @@ struct Library {
     TUint last = 0;
     TBuf<64> name;
 };
-Library gLibraries[96];
+Library gLibraries[384];
 TInt gLibraryCount = 0;
+
+// Names of libraries already considered, so each one is loaded and checked once.
+TUint32 gSeenLibraries[2048];
+TInt gSeenLibraryCount = 0;
+
+TUint32 Hash(const TDesC& text) {
+    TUint32 hash = 2166136261u;
+    for (TInt i = 0; i < text.Length(); ++i) hash = (hash ^ TChar(text[i]).GetLowerCase()) * 16777619u;
+    return hash;
+}
 
 TPtrC LibraryFile(const TDesC& found, TFileName& file) {
     file = found.Mid(found.LocateReverse(':') + 1);
@@ -78,9 +88,12 @@ void RecordLibraries() {
     while (find.Next(found) == KErrNone && gLibraryCount < static_cast<TInt>(sizeof(gLibraries) / sizeof(gLibraries[0]))) {
         TFileName file;
         LibraryFile(found, file);
+        const TUint32 hash = Hash(file);
         bool known = false;
-        for (TInt i = 0; i < gLibraryCount && !known; ++i) known = gLibraries[i].name.CompareF(file.Left(64)) == 0;
+        for (TInt i = 0; i < gSeenLibraryCount && !known; ++i) known = gSeenLibraries[i] == hash;
         if (known) continue;
+        if (gSeenLibraryCount < static_cast<TInt>(sizeof(gSeenLibraries) / sizeof(gSeenLibraries[0])))
+            gSeenLibraries[gSeenLibraryCount++] = hash;
         Library& library = gLibraries[gLibraryCount];
         if (library.handle.Load(file) != KErrNone) continue;
         const TFileName path = library.handle.FileName();
@@ -108,12 +121,14 @@ void RecordLibraries() {
     }
 }
 
-// ROM code is mapped at the same address in every process, so the nearest export
-// below a register names the function it points into.
-void MapRegisters(const TUint32* regs, TInt words) {
-    TUint best[18] = {};
-    TInt best_ordinal[18] = {};
-    TBuf<48> best_file[18];
+// ROM and RAM library code is mapped at the same address in every process, so the
+// nearest export below an address names the function it points into.
+const TInt kMapped = 40;
+TBuf<48> gBestFile[kMapped];
+void MapAddresses(const TUint32* regs, TInt words, const TDesC8& label) {
+    TUint best[kMapped] = {};
+    TInt best_ordinal[kMapped] = {};
+    TBuf<48>* best_file = gBestFile;
     TFindLibrary find(_L("*"));
     TFullName found;
     TInt count = 0;
@@ -126,7 +141,7 @@ void MapRegisters(const TUint32* regs, TInt words) {
         for (TInt ordinal = 1; ordinal < 5000; ++ordinal) {
             const TUint address = reinterpret_cast<TUint>(library.Lookup(ordinal)) & ~1u;
             if (!address) break;
-            for (TInt r = 0; r < words && r < 18; ++r)
+            for (TInt r = 0; r < words && r < kMapped; ++r)
                 if (address <= regs[r] && address > best[r] && regs[r] - address < 0x100000) {
                     best[r] = address;
                     best_ordinal[r] = ordinal;
@@ -135,10 +150,10 @@ void MapRegisters(const TUint32* regs, TInt words) {
         }
         library.Close();
     }
-    for (TInt r = 0; r < words && r < 18; ++r) {
+    for (TInt r = 0; r < words && r < kMapped; ++r) {
         if (!best[r]) continue;
         TBuf8<160> line;
-        line.AppendFormat(_L8("near r%d=%08x ord=%d +%x "), r, regs[r], best_ordinal[r], regs[r] - best[r]);
+        line.AppendFormat(_L8("near %S%d=%08x ord=%d +%x "), &label, r, regs[r], best_ordinal[r], regs[r] - best[r]);
         Append(line, best_file[r]);
         Line(line);
     }
@@ -161,7 +176,7 @@ void ReportContext(RThread& thread) {
             const TUint32* code = reinterpret_cast<const TUint32*>(at);
             LOG(_L8("rom %08x: %08x %08x %08x %08x"), at, code[0], code[1], code[2], code[3]);
         }
-    MapRegisters(regs, words);
+    MapAddresses(regs, words, _L8("r"));
 }
 
 struct Watched {
@@ -175,7 +190,7 @@ struct Watched {
     TInt trail_next[24] = {};
     TInt thread_count = 0;
 };
-Watched gWatched[16];
+Watched gWatched[40];
 
 void Discover(Watched& item) {
     TFullName pattern(item.process.FullName());
@@ -228,10 +243,17 @@ void Sample(Watched& item) {
 }
 
 void ReportTrail(Watched& item, TInt i) {
+    TUint32 addresses[kTrail * 2];
+    TInt count = 0;
     for (TInt n = 0; n < kTrail; ++n) {
         const TUint32* entry = item.trail[i][(item.trail_next[i] + n) % kTrail];
-        if (entry[0]) LOG(_L8("trail pc=%08x lr=%08x"), entry[0], entry[1]);
+        if (!entry[0]) continue;
+        LOG(_L8("trail%d pc=%08x lr=%08x"), count / 2, entry[0], entry[1]);
+        addresses[count++] = entry[0];
+        addresses[count++] = entry[1];
     }
+    // Even indices are pcs, odd ones lrs: trail entry n is t(2n) and t(2n+1).
+    MapAddresses(addresses, count, _L8("t"));
 }
 
 bool Check(Watched& item) {
@@ -261,7 +283,7 @@ bool Check(Watched& item) {
     return true;
 }
 
-void Adopt(RProcess& process, TUint id) {
+bool Adopt(RProcess& process, TUint id) {
     Watched* slot = nullptr;
     for (Watched& item : gWatched) if (!item.id) { slot = &item; break; }
     const TFileName image = process.FileName();
@@ -275,19 +297,31 @@ void Adopt(RProcess& process, TUint id) {
     LogRam("at-start");
     if (!slot) {
         process.Close();
-        return;
+        return false;
     }
     slot->process = process;
     slot->id = id;
     slot->thread_count = 0;
     Discover(*slot);
+    return true;
 }
 
 int Watch() {
     LOG(_L8("start build=%d"), kBuild);
     LogRam("baseline");
+#ifdef CRASH_WATCH_TEST
+    {
+        RLibrary euser;
+        if (euser.Load(_L("euser.dll")) == KErrNone) {
+            const TUint32 probe[2] = {(reinterpret_cast<TUint32>(euser.Lookup(100)) & ~1u) + 6, 0x1234};
+            LOG(_L8("test euser ord100=%08x"), reinterpret_cast<TUint32>(euser.Lookup(100)));
+            MapAddresses(probe, 2, _L8("t"));
+            euser.Close();
+        }
+    }
+#endif
     const TUint self = static_cast<TUint>(RProcess().Id().Id());
-    TUint baseline[160] = {};
+    static TUint baseline[1024];
     TInt baseline_count = 0;
     bool first = true;
     TInt idle = 0;
@@ -316,11 +350,11 @@ int Watch() {
                 TBuf8<48> prefix;
                 prefix.AppendFormat(first ? _L8("baseline pid=%u") : _L8("rom pid=%u"), id);
                 LogWithName(prefix, image.Length() ? image : name);
-                if (baseline_count < 160) baseline[baseline_count++] = id;
+                if (baseline_count < 1024) baseline[baseline_count++] = id;
                 process.Close();
                 continue;
             }
-            Adopt(process, id);
+            if (!Adopt(process, id) && baseline_count < 1024) baseline[baseline_count++] = id;
         }
         first = false;
         bool active = false;
