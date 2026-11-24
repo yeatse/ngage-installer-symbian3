@@ -1,0 +1,17 @@
+[project]
+architecture = "armv6"
+name = "video_probe"
+kind = "e32-import-experiment"
+cmake_preset = "symbian-pic"
+uid3 = 0xe00009a4
+
+[package]
+uid = 0xe00009a5
+name = "N-Gage video probe"
+vendor = "ngage-installer-symbian3"
+executable_name = "video_probe.exe"
+version = [1, 0, 0]
+
+[application]
+caption = "N-Gage video probe"
+short_caption = "Video probe"
