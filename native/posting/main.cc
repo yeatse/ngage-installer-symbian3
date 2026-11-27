@@ -103,6 +103,9 @@ Pixel PixelOf(TUint format) {
 }
 TInt BytesOf(Pixel pixel) { return pixel == Pixel::k888 ? 3 : pixel == Pixel::kx888 ? 4 : 2; }
 
+// A compositor surface format. direct: the game's own format, so the game renders straight into the surface.
+struct SurfaceFormat { TUidPixelFormat format; TInt bytes; bool direct; };
+
 // Fields of a 16-bit pixel never share a byte boundary in a way that mixes, so each byte expands alone.
 TUint32 Expand(Pixel pixel, TUint value) {
     TUint b, g, r;
@@ -129,6 +132,14 @@ public:
         iBuffer = iChunk.Base();
     }
     void Close() { iChunk.Close(); iBuffer = nullptr; }
+};
+
+// One buffer of the mapped compositor surface, handed to the game to render into (not owned).
+class SurfaceView final : public CPostingSurface::TPostingBufferChunk {
+public:
+    void Point(RChunk chunk, TInt offset, TSize size, TInt stride) {
+        iChunk = chunk; iOffsetInChunk = offset; iBuffer = chunk.Base() + offset; iSize = size; iStride = stride;
+    }
 };
 
 // Frames go to a compositor surface shown by a window of our own. Where the device has none they go
@@ -178,14 +189,19 @@ public:
         return Call<TInt, const TSurfaceConfiguration*, TInt>(window_library_, &window, kShow, &configuration, ETrue);
     }
     void Hide(RWindow& window) { Call<void, TInt>(window_library_, &window, kHide, ETrue); }
-    TInt Offset(const TSurfaceId& id, TInt& offset) {
-        return Call<TInt, const TSurfaceId*, TInt, TInt*>(manager_library_, manager_, 16, &id, 0, &offset);
+    TInt Offset(const TSurfaceId& id, TInt buffer, TInt& offset) {
+        return Call<TInt, const TSurfaceId*, TInt, TInt*>(manager_library_, manager_, 16, &id, buffer, &offset);
     }
     void Destroy(const TSurfaceId& id) { if (open_) Call<TInt, const TSurfaceId*>(manager_library_, manager_, 4, &id); }
-    void Submit(const TSurfaceId& id) {
-        Call<TInt, TInt, const TSurfaceId*, TInt, const TRegion*>(update_library_, updates_, 1, KAllScreens, &id, 0,
-                                                                  nullptr);
+    TInt Submit(const TSurfaceId& id, TInt buffer) {
+        return Call<TInt, TInt, const TSurfaceId*, TInt, const TRegion*>(update_library_, updates_, 1, KAllScreens,
+                                                                         &id, buffer, nullptr);
     }
+    // NotifyWhenAvailable: completes when the buffer of the next Submit is released.
+    void NotifyAvailable(TRequestStatus& status) {
+        Call<void, TRequestStatus*>(update_library_, updates_, 2, &status);
+    }
+    void CancelNotifications() { Call<void>(update_library_, updates_, 5); }  // ordinal 5
     void Close() {
         if (connected_) Call<void>(update_library_, updates_, 6);
         if (open_) Call<void>(manager_library_, manager_, 13);
@@ -220,6 +236,21 @@ private:
     void (*changed_)(TAny*);
     TAny* context_;
 };
+// The compositor's release of one surface buffer (NotifyWhenAvailable). It must be an active object: the NGI runtime
+// pumps the game thread's scheduler itself and drops the signal of a completion no active object owns, so a plain
+// User::WaitForRequest on it slept until the next tap.
+class BufferRelease final : public CActive {
+public:
+    BufferRelease() : CActive(EPriorityHigh) { CActiveScheduler::Add(this); }
+    ~BufferRelease() override { Cancel(); }
+    TRequestStatus& Arm() { SetActive(); return iStatus; }
+    // Returns once the buffer is released: Cancel waits for the completion (DoCancel does not cancel it).
+    void Wait() { Cancel(); }
+private:
+    void RunL() override {}
+    void DoCancel() override {}
+};
+
 class Surface final : public CPostingSurface {
     RWsSession ws_;
     CWsScreenDevice* screen_ = nullptr;
@@ -227,6 +258,7 @@ class Surface final : public CPostingSurface {
     CFbsBitGc* gc_ = nullptr;
     CFbsBitmap bitmap_;
     Buffer buffer_;
+    SurfaceView view_;
     RRegion clip_;
     bool clip_set_ = false;
     // The touch controls are blended into each frame from cache_; a window over the game would stop it drawing there.
@@ -256,6 +288,17 @@ class Surface final : public CPostingSurface {
     RChunk shared_;
     RWindow* game_ = nullptr;
     TUint8* target_ = nullptr;
+    // Two buffers where the driver allows: the compositor shows one while the game fills the other.
+    TInt offsets_[2] = {0, 0};
+    TInt buffers_ = 1;
+    TInt back_ = 0;
+    TInt front_ = -1;     // the buffer submitted last
+    bool held_ = false;   // the back buffer holds a frame not yet submitted (a video player held the window)
+    // The surface is in the game's own format and the game renders into it; otherwise (4-4-4, 5-5-5, 8-8-8)
+    // the surface is XRGB8888 and PostBuffer expands each frame into it.
+    bool zero_ = false;
+    // Null where the thread has no active scheduler: frames are then not paced.
+    BufferRelease* release_[2] = {nullptr, nullptr};
     TSize size_{0, 0};
     TInt pitch_ = 0;
     TInt stride_ = 0;
@@ -267,14 +310,14 @@ class Surface final : public CPostingSurface {
     VideoWatch* video_ = nullptr;
     static void VideoChanged(TAny* context) {
         auto& surface = *static_cast<Surface*>(context);
-        if (!surface.target_ || surface.shown_rect_.IsEmpty() || surface.VideoOwnsWindow()) return;
-        if (surface.ShowSurface(surface.shown_rect_, surface.viewport_)) surface.compositor_.Submit(surface.id_);
+        if (surface.target_ && !surface.shown_rect_.IsEmpty()) surface.Present(surface.shown_rect_, surface.viewport_, false);
     }
 public:
     ~Surface() override {
         delete video_;
         Destroy();
         ReleaseDirect();
+        for (auto* release : release_) delete release;
         clip_.Close();
         touch_.Close();
         delete screen_;
@@ -292,6 +335,8 @@ public:
             video_ = new(ELeave) VideoWatch(VideoChanged, this);
             video_->Start();
         }
+        if (CActiveScheduler::Current())
+            for (auto*& release : release_) release = new(ELeave) BufferRelease;
     }
     TBool FormatSupported(TPostingFormat format) override {
         return PixelOf(format) != Pixel::kInvalid;
@@ -358,28 +403,52 @@ public:
     bool OpenSurface(TSize size) {
         if (!game_ || !game_->WsHandle()) return false;
         if (!compositor_.Open()) return false;
+        // The game's own format first; XRGB8888 with a per-frame expand if the compositor refuses it.
+        SurfaceFormat candidates[2];
+        TInt count = 0;
+        if (pixel_ == Pixel::k565) candidates[count++] = {EUidPixelFormatRGB_565, 2, true};
+        if (pixel_ == Pixel::kx888) candidates[count++] = {EUidPixelFormatXRGB_8888, 4, true};
+        candidates[count++] = {EUidPixelFormatXRGB_8888, 4, false};
         RSurfaceManager::TSurfaceCreationAttributesBuf package;
         RSurfaceManager::TSurfaceCreationAttributes& attributes = package();
-        attributes.iSize = size;
-        attributes.iBuffers = 1;
-        attributes.iPixelFormat = EUidPixelFormatXRGB_8888;
-        attributes.iStride = size.iWidth * 4;
-        attributes.iOffsetToFirstBuffer = 0;
-        attributes.iAlignment = 4;
-        attributes.iContiguous = EFalse;
-        attributes.iCacheAttrib = RSurfaceManager::ECached;
-        attributes.iOffsetBetweenBuffers = 0;
-        attributes.iSurfaceHints = nullptr;
-        attributes.iHintCount = 0;
-        attributes.iMappable = ETrue;
-        TInt offset = 0;
-        if (compositor_.Create(package, id_) != KErrNone) { id_ = TSurfaceId::CreateNullId(); return false; }
-        if (compositor_.Map(id_, shared_) != KErrNone || compositor_.Offset(id_, offset) != KErrNone) return false;
-        // The driver may pad rows: the 808 gives a 360 pixel wide surface a 1472 byte stride.
-        RSurfaceManager::TInfoBuf info;
-        if (compositor_.Info(id_, info) != KErrNone || info().iStride < size.iWidth * 4) return false;
-        target_ = shared_.Base() + offset; surface_ = size; stride_ = info().iStride;
-        return true;
+        for (TInt c = 0; c < count; ++c) {
+            const TInt bytes = candidates[c].bytes;
+            // The stride is known only after creation, so the gap between buffers is an upper bound and the
+            // real offsets are queried back. Two buffers first, then one.
+            const TInt span = (size.iWidth * bytes + 63) & ~63;
+            for (TInt want = 2; want >= 1; --want) {
+                attributes = RSurfaceManager::TSurfaceCreationAttributes();
+                attributes.iSize = size;
+                attributes.iBuffers = want;
+                attributes.iPixelFormat = candidates[c].format;
+                attributes.iStride = size.iWidth * bytes;
+                attributes.iOffsetToFirstBuffer = 0;
+                attributes.iAlignment = 4;
+                attributes.iContiguous = EFalse;
+                attributes.iCacheAttrib = RSurfaceManager::ECached;
+                attributes.iOffsetBetweenBuffers = want > 1 ? span * size.iHeight : 0;
+                attributes.iSurfaceHints = nullptr;
+                attributes.iHintCount = 0;
+                attributes.iMappable = ETrue;
+                if (compositor_.Create(package, id_) != KErrNone) { id_ = TSurfaceId::CreateNullId(); continue; }
+                if (compositor_.Map(id_, shared_) != KErrNone) { DropSurface(); continue; }
+                // The driver may pad rows: the 808 gives a 360 pixel wide surface a 1472 byte stride.
+                RSurfaceManager::TInfoBuf info;
+                if (compositor_.Info(id_, info) != KErrNone || info().iStride < size.iWidth * bytes) { DropSurface(); continue; }
+                bool ok = true;
+                for (TInt b = 0; b < want && ok; ++b) ok = compositor_.Offset(id_, b, offsets_[b]) == KErrNone;
+                // Two buffers that the driver padded into each other are unusable: retry with one.
+                if (ok && want > 1 && offsets_[1] - offsets_[0] < info().iStride * size.iHeight) ok = false;
+                if (!ok) { DropSurface(); continue; }
+                buffers_ = want;
+                back_ = 0;
+                if (want == 1) offsets_[1] = offsets_[0];
+                zero_ = candidates[c].direct;
+                target_ = shared_.Base() + offsets_[0]; surface_ = size; stride_ = info().iStride;
+                return true;
+            }
+        }
+        return false;
     }
     // output is where the crop of the source goes on the screen; the part on the screen is shown.
     bool ShowSurface(const TRect& output, const TRect& crop) {
@@ -429,13 +498,49 @@ public:
         if (visible_ && !VideoOwnsWindow()) compositor_.Hide(*game_);
         visible_ = false;
     }
-    void CloseSurface() {
-        HideSurface();
+    // Consumes outstanding buffer-release notifications; safe with none armed.
+    void DrainNotifications() {
+        bool armed = false;
+        for (auto* release : release_) armed = armed || (release && release->IsActive());
+        if (armed) compositor_.CancelNotifications();
+        for (auto* release : release_) if (release) release->Wait();
+    }
+    // Keeps the compositor session, so OpenSurface can retry another surface on it.
+    void DropSurface() {
+        DrainNotifications();
         target_ = nullptr;
+        zero_ = false;
+        front_ = -1;
+        held_ = false;
         shared_.Close();
         if (!id_.IsNull()) compositor_.Destroy(id_);
-        compositor_.Close();
         id_ = TSurfaceId::CreateNullId();
+    }
+    void CloseSurface() {
+        HideSurface();
+        DropSurface();
+        compositor_.Close();
+    }
+    // Shows the newest frame: one new in the back buffer is submitted with its release notification armed, then the
+    // buffers flip; otherwise (a video player gave the window back) the buffer submitted last is shown again.
+    // Nothing is submitted while a player holds the window.
+    void Present(const TRect& shown, const TRect& viewport, bool fresh) {
+        shown_rect_ = shown; viewport_ = viewport;
+        held_ = held_ || fresh;
+        if (VideoOwnsWindow()) { visible_ = false; return; }
+        if (!ShowSurface(shown, viewport)) return;
+        if (!held_) {
+            if (front_ >= 0) compositor_.Submit(id_, front_);
+            return;
+        }
+        held_ = false;
+        TRequestStatus* release = nullptr;
+        if (buffers_ > 1 && release_[back_]) compositor_.NotifyAvailable(*(release = &release_[back_]->Arm()));
+        // A refused submit never completes the notification: complete it, or the next wait would never return.
+        const TInt submitted = compositor_.Submit(id_, back_);
+        if (release && submitted != KErrNone && *release == KRequestPending) User::RequestComplete(release, submitted);
+        if (submitted == KErrNone) front_ = back_;
+        if (buffers_ > 1) back_ ^= 1;
     }
     // Controls are drawn only when the state changes, once over white and once over black: the
     // difference gives each pixel's alpha and the black pass its premultiplied colour.
@@ -533,10 +638,16 @@ public:
     void Destroy() override { HideSurface(); Release(); }
     TInt WaitForNextBuffer(TRequestStatus& status) override {
         status = KRequestPending;
+        // The game may reuse the back buffer once the compositor has released it: paces the game to the display.
+        if (target_ && buffers_ > 1 && release_[back_]) release_[back_]->Wait();
         TRequestStatus* request = &status; User::RequestComplete(request, KErrNone);
         return KErrNone;
     }
     TPostingBuff* NextBuffer() override {
+        if (target_ && zero_) {
+            view_.Point(shared_, offsets_[back_], source_, stride_);
+            return &view_;
+        }
         return &buffer_;
     }
     TInt CancelBuffer() override { return KErrNone; }
@@ -556,7 +667,7 @@ public:
         if (!buffer || buffer->GetSize() != source_ || !buffer->GetBuffer()) return KErrArgument;
         if (!target_ && (!direct_ || !gc_)) return KErrNotReady;
 
-        auto* frame = target_ ? target_ : Frame();
+        auto* frame = target_ ? shared_.Base() + offsets_[back_] : Frame();
         const TSize size = target_ ? source_ : size_;
         const TInt pitch = target_ ? stride_ : pitch_;
         if (!frame || size.iWidth <= 0 || size.iHeight <= 0) return KErrNotReady;
@@ -572,6 +683,11 @@ public:
         const TRect shown = output, viewport = crop;
         if (target_) output = crop = TRect(TPoint(0, 0), source_);
         TRect area = output; area.Intersection(TRect(TPoint(0, 0), size));
+        // The game rendered into the back buffer itself: nothing to convert.
+        if (target_ && zero_) {
+            Present(shown, viewport, true);
+            return KErrNone;
+        }
         const auto* input = static_cast<const TUint8*>(buffer->GetBuffer());
         const TInt in_bytes = BytesOf(pixel_);
         const TInt in_stride = buffer->GetStride();
@@ -612,9 +728,7 @@ public:
             }
         }
         if (target_) {
-            shown_rect_ = shown; viewport_ = viewport;
-            if (VideoOwnsWindow()) visible_ = false;
-            else if (ShowSurface(shown, viewport)) compositor_.Submit(id_);
+            Present(shown, viewport, true);
             return KErrNone;
         }
         Blend(frame, pitch, area);
